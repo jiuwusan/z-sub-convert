@@ -65,10 +65,10 @@ test('converts multiple subscriptions and ignores target and unknown parameters'
   );
   const output = YAML.parse(await response.text());
   assert.deepEqual(output.proxies.map(({ name }) => name), [
-    '🇸🇬-新加坡-01', '🇯🇵-日本-01'
+    '🇸🇬 新加坡 01', '🇯🇵 日本 01'
   ]);
   assert.deepEqual(output['proxy-groups'].slice(-2).map(({ name }) => name), [
-    '🇸🇬-SS-新加坡', '🇯🇵-HYSTERIA2-日本'
+    '🇸🇬 SS 新加坡', '🇯🇵 HYSTERIA2 日本'
   ]);
   assert.deepEqual(receivedAgents, ['clash-meta', 'clash-meta']);
 });

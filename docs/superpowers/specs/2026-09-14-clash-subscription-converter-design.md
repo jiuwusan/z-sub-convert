@@ -72,8 +72,8 @@ For example, `hysteria2` is displayed as `HYSTERIA2`, not `HY2`.
 - Preserve every proxy field except `name`.
 - Do not deduplicate proxies. Nodes sharing a server and port may still have different credentials or transport settings.
 - Group proxies by normalized protocol and normalized country/region.
-- Name each generated group as `$国旗-$大写协议-$国家名称`, for example `🇸🇬-SS-新加坡`.
-- Rename each proxy as `$国旗-$国家名称-$编号`, for example `🇸🇬-新加坡-01`.
+- Name each generated group as `$国旗 $大写协议 $国家名称`, for example `🇸🇬 SS 新加坡`.
+- Rename each proxy as `$国旗 $国家名称 $编号`, for example `🇸🇬 新加坡 01`.
 - Number proxies per country/region across all protocol groups, starting at 1 and padded to at least two digits. A country's later protocol groups continue from the numbers assigned to its earlier protocol groups, ensuring proxy names are globally unique while keeping the required name format. Numbers above 99 remain untruncated.
 - Sort groups by protocol priority first and country/region priority second.
 - Each generated group uses the same fallback behavior as the provided result sample: `type: fallback`, `interval: 305`, and `url: http://www.gstatic.com/generate_204`.

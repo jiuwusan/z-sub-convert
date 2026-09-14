@@ -99,11 +99,11 @@ function transformConfig(template, upstreamProxyLists) {
     const proxyNames = group.records.map((record) => {
       const next = (countryCounters.get(group.country.code) || 0) + 1;
       countryCounters.set(group.country.code, next);
-      record.assignedName = `${group.country.flag}-${group.country.name}-${String(next).padStart(2, '0')}`;
+      record.assignedName = `${group.country.flag} ${group.country.name} ${String(next).padStart(2, '0')}`;
       return record.assignedName;
     });
     return {
-      name: `${group.country.flag}-${group.protocol.toLocaleUpperCase('en-US')}-${group.country.name}`,
+      name: `${group.country.flag} ${group.protocol.toLocaleUpperCase('en-US')} ${group.country.name}`,
       interval: 305,
       type: 'fallback',
       url: 'http://www.gstatic.com/generate_204',

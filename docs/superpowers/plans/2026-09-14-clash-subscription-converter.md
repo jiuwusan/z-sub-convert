@@ -111,12 +111,12 @@ const output = transformConfig(template, [[
 ]]);
 
 assert.deepEqual(output.proxies.map(({ name }) => name), [
-  '🇸🇬-新加坡-01',
-  '🇯🇵-日本-01'
+  '🇸🇬 新加坡 01',
+  '🇯🇵 日本 01'
 ]);
 assert.deepEqual(output['proxy-groups'].slice(-2).map(({ name }) => name), [
-  '🇸🇬-SS-新加坡',
-  '🇯🇵-HYSTERIA2-日本'
+  '🇸🇬 SS 新加坡',
+  '🇯🇵 HYSTERIA2 日本'
 ]);
 ```
 
@@ -236,7 +236,7 @@ const response = await fetch(`${baseUrl}/sub?url=${encodeURIComponent(upstreamUr
 assert.equal(response.status, 200);
 assert.match(response.headers.get('content-type'), /^text\/yaml/);
 const config = YAML.parse(await response.text());
-assert.equal(config.proxies[0].name, '🇸🇬-新加坡-01');
+assert.equal(config.proxies[0].name, '🇸🇬 新加坡 01');
 ```
 
 Cover `/version`, missing URL, ignored target/unknown parameters, unknown routes, unsupported methods, upstream 502 errors, invalid template 500 errors, YAML response headers, and a multi-URL end-to-end conversion.

@@ -29,11 +29,11 @@ test('sorts generated groups by protocol then country and injects both template 
 
   const generatedNames = output['proxy-groups'].slice(3).map(({ name }) => name);
   assert.deepEqual(generatedNames, [
-    '🇸🇬-SS-新加坡',
-    '🇯🇵-SS-日本',
-    '🇺🇸-SSR-美国',
-    '🇺🇸-HYSTERIA2-美国',
-    '🇸🇬-TROJAN-新加坡'
+    '🇸🇬 SS 新加坡',
+    '🇯🇵 SS 日本',
+    '🇺🇸 SSR 美国',
+    '🇺🇸 HYSTERIA2 美国',
+    '🇸🇬 TROJAN 新加坡'
   ]);
   assert.deepEqual(output['proxy-groups'][0].proxies, [
     '🔰 故障转移', ...generatedNames
@@ -50,9 +50,9 @@ test('keeps source proxy order but numbers each country across protocol groups',
   const output = transformConfig(makeTemplate(), [source]);
 
   assert.deepEqual(output.proxies.map(({ name }) => name), [
-    '🇸🇬-新加坡-03',
-    '🇸🇬-新加坡-01',
-    '🇸🇬-新加坡-02'
+    '🇸🇬 新加坡 03',
+    '🇸🇬 新加坡 01',
+    '🇸🇬 新加坡 02'
   ]);
   assert.equal(output.proxies[1].udp, true);
   assert.equal(source[0].name, 'Singapore hy2');
@@ -68,8 +68,8 @@ test('pads proxy numbers to two digits without truncating 100', () => {
   }));
   const output = transformConfig(makeTemplate(), [proxies]);
 
-  assert.equal(output.proxies[0].name, '🇯🇵-日本-01');
-  assert.equal(output.proxies[99].name, '🇯🇵-日本-100');
+  assert.equal(output.proxies[0].name, '🇯🇵 日本 01');
+  assert.equal(output.proxies[99].name, '🇯🇵 日本 100');
 });
 
 test('orders unknown protocols alphabetically and puts unknown country last', () => {
@@ -80,9 +80,9 @@ test('orders unknown protocols alphabetically and puts unknown country last', ()
   ]]);
 
   assert.deepEqual(output['proxy-groups'].slice(3).map(({ name }) => name), [
-    '🇨🇦-ALPHA-加拿大',
-    '🏳️-ALPHA-其他',
-    '🏳️-ZETA-其他'
+    '🇨🇦 ALPHA 加拿大',
+    '🏳️ ALPHA 其他',
+    '🏳️ ZETA 其他'
   ]);
 });
 
