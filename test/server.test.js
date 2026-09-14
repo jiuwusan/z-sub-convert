@@ -73,36 +73,15 @@ test('converts multiple subscriptions and ignores target and unknown parameters'
   assert.deepEqual(receivedAgents, ['clash-meta', 'clash-meta']);
 });
 
-test('serves subconverter-compatible version text with CORS', async (t) => {
+test('serves version and structured route errors', async (t) => {
   const templatePath = await makeTemplate(t);
   const appUrl = await listen(t, createApp({ templatePath, logger: { error() {} } }));
 
   const versionResponse = await fetch(`${appUrl}/version`);
   assert.equal(versionResponse.status, 200);
-  assert.match(versionResponse.headers.get('content-type'), /^text\/plain;\s*charset=utf-8/i);
-  assert.equal(versionResponse.headers.get('access-control-allow-origin'), '*');
-  assert.equal(await versionResponse.text(), 'subconverter v1.0.0 backend');
-});
-
-test('supports the OpenClash version alias and HEAD probe', async (t) => {
-  const templatePath = await makeTemplate(t);
-  const appUrl = await listen(t, createApp({ templatePath, logger: { error() {} } }));
-
-  const aliasResponse = await fetch(`${appUrl}/sub/version`);
-  assert.equal(aliasResponse.status, 200);
-  assert.equal(aliasResponse.headers.get('access-control-allow-origin'), '*');
-  assert.equal(await aliasResponse.text(), 'subconverter v1.0.0 backend');
-
-  const headResponse = await fetch(`${appUrl}/version`, { method: 'HEAD' });
-  assert.equal(headResponse.status, 200);
-  assert.match(headResponse.headers.get('content-type'), /^text\/plain;\s*charset=utf-8/i);
-  assert.equal(headResponse.headers.get('access-control-allow-origin'), '*');
-  assert.equal(await headResponse.text(), '');
-});
-
-test('serves structured route errors', async (t) => {
-  const templatePath = await makeTemplate(t);
-  const appUrl = await listen(t, createApp({ templatePath, logger: { error() {} } }));
+  assert.deepEqual(await versionResponse.json(), {
+    name: 'clash-sub-convert', version: '1.0.0'
+  });
 
   const missingResponse = await fetch(`${appUrl}/sub`);
   assert.equal(missingResponse.status, 400);
