@@ -52,7 +52,7 @@ jobs:
       - name: Log in to Docker Hub
         uses: docker/login-action@v4
         with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
+          username: jiuwusan
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push image
