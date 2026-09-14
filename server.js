@@ -72,11 +72,11 @@ function createApp(options = {}) {
       return;
     }
 
-    if (requestUrl.pathname === '/version') {
-      sendJson(response, 200, {
-        name: packageMetadata.name,
-        version: packageMetadata.version
-      }, headOnly);
+    if (requestUrl.pathname === '/version' || requestUrl.pathname === '/sub/version') {
+      send(response, 200, {
+        'content-type': 'text/plain; charset=utf-8',
+        'access-control-allow-origin': '*'
+      }, `subconverter v${packageMetadata.version} backend`, headOnly);
       return;
     }
 
