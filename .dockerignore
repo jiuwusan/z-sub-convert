@@ -1,0 +1,9 @@
+node_modules
+npm-debug.log*
+.git
+.gitignore
+.pm2*
+test
+docs
+prds/result-demo.yaml
+prds/第三方订阅测试链接.txt

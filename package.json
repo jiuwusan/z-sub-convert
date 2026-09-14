@@ -1,0 +1,21 @@
+{
+  "name": "clash-sub-convert",
+  "version": "1.0.0",
+  "description": "Clash.Meta subscription grouping and template converter",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "pm2": "^7.0.4",
+    "yaml": "^2.8.1"
+  },
+  "overrides": {
+    "js-yaml": "^5.4.2"
+  }
+}

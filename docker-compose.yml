@@ -1,0 +1,15 @@
+services:
+  sub-convert:
+    build:
+      context: .
+    image: clash-sub-convert:latest
+    container_name: clash-sub-convert
+    restart: unless-stopped
+    ports:
+      - "${PORT:-25500}:25500"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 25500
+      UPSTREAM_TIMEOUT_MS: ${UPSTREAM_TIMEOUT_MS:-15000}
+      MAX_UPSTREAM_BYTES: ${MAX_UPSTREAM_BYTES:-10485760}
+      TEMPLATE_PATH: /app/prds/template.yaml
