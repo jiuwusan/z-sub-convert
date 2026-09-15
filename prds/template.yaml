@@ -2,15 +2,14 @@ port: 7890
 socks-port: 7891
 redir-port: 7892
 allow-lan: true
-mode: Rule
-log-level: silent
+mode: rule
+log-level: warning
 external-controller: 127.0.0.1:9090
-experimental:
-  ignore-resolve-fail: true
 secret: ""
 dns:
   enable: true
   ipv6: false
+  enhanced-mode: fake-ip
   use-hosts: true
   fake-ip-range: 198.18.0.1/16
   default-nameserver:
@@ -44,7 +43,7 @@ proxy-groups:
   - name: 🔰 故障转移
     type: fallback
     interval: 185
-    url: http://www.gstatic.com/generate_204
+    url: https://www.gstatic.com/generate_204
     proxies: []
   - name: 🎯 全球直连
     type: select
