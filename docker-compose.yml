@@ -1,8 +1,6 @@
 services:
   sub-convert:
-    build:
-      context: .
-    image: clash-sub-convert:latest
+    image: jiuwusan/z-sub-convert:latest
     container_name: clash-sub-convert
     restart: unless-stopped
     ports:

@@ -55,7 +55,8 @@ GET /sub?target=anything&url=<已编码地址>&emoji=false
 ## Docker Compose 部署
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 镜像基于 `node:22-alpine`，通过 `pm2-runtime` 运行。PM2 的 `max_memory_restart` 设置为 `256M`，进程内存达到阈值后会自动重启。
