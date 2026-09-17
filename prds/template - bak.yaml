@@ -33,15 +33,7 @@ dns:
     - 119.29.29.29
     - 223.5.5.5
 
-proxies: 
-  - name: 🏠 静态 ISP
-    type: socks5
-    port: 443
-    udp: true
-    server: 149.119.185.95
-    username: ZdheYuBRHWWA
-    password: RNNFsOur9n
-    dialer-proxy: 🚀 节点选择
+proxies: []
 
 proxy-groups:
   - name: 🚀 节点选择
@@ -53,10 +45,6 @@ proxy-groups:
     interval: 185
     url: https://www.gstatic.com/generate_204
     proxies: []
-  - name: 💬 Ai平台
-    type: select
-    proxies:
-      - 🏠 静态 ISP
   - name: 🎯 全球直连
     type: select
     proxies:
@@ -67,29 +55,5 @@ rules:
   - DOMAIN-SUFFIX,lan,🎯 全球直连
   - DOMAIN-SUFFIX,local,🎯 全球直连
   - DOMAIN-SUFFIX,localhost,🎯 全球直连
-  # Claude / Anthropic
-  - DOMAIN-SUFFIX,anthropic.com,💬 Ai平台
-  - DOMAIN-SUFFIX,claude.ai,💬 Ai平台
-  - DOMAIN-SUFFIX,claudeusercontent.com,💬 Ai平台
-  - DOMAIN-SUFFIX,claude.com,💬 Ai平台
-  - DOMAIN-KEYWORD,claude,💬 Ai平台
-  - DOMAIN-KEYWORD,anthropic,💬 Ai平台
-  # OpenAI / ChatGPT
-  - DOMAIN-SUFFIX,openai.com,💬 Ai平台
-  - DOMAIN-SUFFIX,chatgpt.com,💬 Ai平台
-  - DOMAIN-SUFFIX,oaistatic.com,💬 Ai平台
-  - DOMAIN-SUFFIX,oaiusercontent.com,💬 Ai平台
-  - DOMAIN-KEYWORD,chatgpt,💬 Ai平台
-  - DOMAIN-KEYWORD,openai,💬 Ai平台
-  # Gemini
-  - DOMAIN-SUFFIX,ai.google.dev,💬 Ai平台
-  - DOMAIN-SUFFIX,aistudio.google.com,💬 Ai平台
-  - DOMAIN-SUFFIX,gemini.google.com,💬 Ai平台
-  - DOMAIN-SUFFIX,googleapis.com,💬 Ai平台
-  - DOMAIN-SUFFIX,google.com,💬 Ai平台
-  # ping0.cc
-  - DOMAIN-SUFFIX,ping0.cc,💬 Ai平台
-  # ipinfo.io
-  - DOMAIN-SUFFIX,ipinfo.io,💬 Ai平台
   - GEOIP,CN,🎯 全球直连
   - MATCH,🚀 节点选择
