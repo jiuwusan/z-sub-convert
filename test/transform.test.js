@@ -17,6 +17,20 @@ function makeTemplate() {
   };
 }
 
+test('keeps proxies already present in the template', () => {
+  const template = makeTemplate();
+  template.proxies.push({ name: '自有节点', type: 'ss', server: 'own.example', port: 443 });
+  const output = transformConfig(template, [[
+    { name: 'SG ss', type: 'ss', server: 'sg.example', port: 443 }
+  ]]);
+
+  assert.deepEqual(output.proxies.map(({ name }) => name), [
+    '自有节点',
+    '🇸🇬 新加坡 01'
+  ]);
+  assert.equal(output.proxies[0].server, 'own.example');
+});
+
 test('sorts generated groups by protocol then country and injects both template groups', () => {
   const template = makeTemplate();
   const output = transformConfig(template, [[

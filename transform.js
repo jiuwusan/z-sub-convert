@@ -111,9 +111,9 @@ function transformConfig(template, upstreamProxyLists) {
     };
   });
 
-  output.proxies = records
+  output.proxies.push(...records
     .sort((left, right) => left.sourceIndex - right.sourceIndex)
-    .map((record) => ({ ...structuredClone(record.proxy), name: record.assignedName }));
+    .map((record) => ({ ...structuredClone(record.proxy), name: record.assignedName })));
 
   const generatedNames = generatedGroups.map(({ name }) => name);
   selector.proxies.push(...generatedNames);
