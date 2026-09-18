@@ -50,7 +50,7 @@ GET http://127.0.0.1:25500/sub?url=<URL编码后的订阅1|订阅2>
 GET /sub?target=anything&url=<已编码地址>&emoji=false
 ```
 
-抓取上游订阅时固定发送 `User-Agent: clash-meta`。
+抓取上游订阅时固定发送 `User-Agent: clash-verge/v2.4.5`。
 
 ## Docker Compose 部署
 

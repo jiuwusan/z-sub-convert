@@ -66,7 +66,7 @@ async function fetchOne(url, options) {
 
   try {
     const response = await fetchImpl(url, {
-      headers: { 'user-agent': 'clash-meta' },
+      headers: { 'user-agent': 'clash-verge/v2.4.5' },
       signal: AbortSignal.timeout(timeoutMs)
     });
     if (!response.ok) {

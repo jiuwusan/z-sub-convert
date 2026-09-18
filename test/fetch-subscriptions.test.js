@@ -31,7 +31,7 @@ test('splits pipe-separated HTTP URLs and rejects invalid input', () => {
   assert.throws(() => splitSubscriptionUrls('not-a-url'), { statusCode: 400 });
 });
 
-test('fetches concurrently with clash-meta user-agent while preserving URL order', async (t) => {
+test('fetches concurrently with clash-verge user-agent while preserving URL order', async (t) => {
   const seenAgents = [];
   const baseUrl = await listen(t, (request, response) => {
     seenAgents.push(request.headers['user-agent']);
@@ -45,7 +45,7 @@ test('fetches concurrently with clash-meta user-agent while preserving URL order
   const result = await fetchSubscriptions(`${baseUrl}/slow|${baseUrl}/fast`);
 
   assert.deepEqual(result.map((list) => list[0].name), ['first', 'second']);
-  assert.deepEqual(seenAgents.sort(), ['clash-meta', 'clash-meta']);
+  assert.deepEqual(seenAgents.sort(), ['clash-verge/v2.4.5', 'clash-verge/v2.4.5']);
 });
 
 test('maps upstream status and invalid subscription YAML to safe 502 errors', async (t) => {

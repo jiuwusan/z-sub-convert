@@ -15,7 +15,7 @@
 - The application files remain at repository root; only tests live under `test/`.
 - `GET /sub` requires only `url`; `target` and unknown query parameters are ignored.
 - Output is always Clash.Meta/Mihomo-compatible YAML.
-- Every upstream request sends exactly `User-Agent: clash-meta`.
+- Every upstream request sends exactly `User-Agent: clash-verge/v2.4.5`.
 - Protocol priority is `ss`, `ssr`, `hysteria2`, `trojan`, `vmess`, `vless`, `tuic`, `hysteria`, `wireguard`, then alphabetical unknown protocols.
 - Country priority starts with 新加坡, 日本, 美国, 香港, 台湾, 韩国; alphabetical recognized countries follow and 其他 is last.
 - Docker uses `node:22-alpine`, `pm2-runtime`, and `max_memory_restart: 256M`.
@@ -180,7 +180,7 @@ const lists = await fetchSubscriptions(`${slowUrl}|${fastUrl}`, {
 });
 assert.equal(lists[0][0].name, 'first');
 assert.equal(lists[1][0].name, 'second');
-assert.equal(receivedUserAgent, 'clash-meta');
+assert.equal(receivedUserAgent, 'clash-verge/v2.4.5');
 ```
 
 Cover URL splitting, HTTP/HTTPS validation, source-order preservation despite completion order, non-2xx status, timeout, content-length and streamed body limits, invalid YAML, and missing/empty `proxies`.

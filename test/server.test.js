@@ -70,7 +70,7 @@ test('converts multiple subscriptions and ignores target and unknown parameters'
   assert.deepEqual(output['proxy-groups'].slice(-2).map(({ name }) => name), [
     '🇸🇬 SS 新加坡', '🇯🇵 HYSTERIA2 日本'
   ]);
-  assert.deepEqual(receivedAgents, ['clash-meta', 'clash-meta']);
+  assert.deepEqual(receivedAgents, ['clash-verge/v2.4.5', 'clash-verge/v2.4.5']);
 });
 
 test('serves version and structured route errors', async (t) => {

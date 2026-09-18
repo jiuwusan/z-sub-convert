@@ -17,7 +17,7 @@ Build a small Node.js HTTP service that fetches one or more third-party Clash YA
 
 - Accept only `http:` and `https:` subscription URLs.
 - Fetch all URLs concurrently while preserving their order when merging results.
-- Send `User-Agent: clash-meta` on every upstream request.
+- Send `User-Agent: clash-verge/v2.4.5` on every upstream request.
 - Apply a configurable timeout and response body size limit to each request.
 - Treat any non-2xx response, timeout, oversized response, invalid YAML document, or document without a non-empty `proxies` array as a conversion failure. Do not return a partial configuration.
 
@@ -138,7 +138,7 @@ Coverage includes:
 - Preservation of arbitrary proxy fields.
 - Injection into both required template groups while preserving existing entries.
 - Ignoring any `target` value and unknown query parameters.
-- Exact `User-Agent: clash-meta` behavior.
+- Exact `User-Agent: clash-verge/v2.4.5` behavior.
 - Missing parameters, invalid URLs, upstream errors, timeouts, body limits, invalid YAML, and invalid templates.
 - A conversion using the provided third-party test URL, performed as a manual integration check so the automated suite does not depend on an external service.
 - Docker image build and Compose configuration validation.
