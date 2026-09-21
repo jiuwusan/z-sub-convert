@@ -1,0 +1,122 @@
+port: 7890
+socks-port: 7891
+redir-port: 7892
+allow-lan: true
+mode: rule
+log-level: warning
+external-controller: 127.0.0.1:9090
+secret: ""
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  use-hosts: true
+  fake-ip-range: 198.18.0.1/16
+  default-nameserver:
+    - 119.29.29.29
+    - 223.5.5.5
+  nameserver:
+    - https://doh.pub/dns-query
+    - https://dns.alidns.com/dns-query
+  fallback:
+    - https://dns.google/dns-query
+    - https://dns.cloudflare.com/dns-query
+  fallback-filter:
+    geoip: true
+    ipcidr:
+      - 240.0.0.0/4
+      - 0.0.0.0/32
+  proxy-server-nameserver:
+    - 1.1.1.1
+    - 8.8.8.8
+    - 8.8.4.4
+    - 119.29.29.29
+    - 223.5.5.5
+
+proxies: []
+
+proxy-groups:
+  - name: 🚀 节点选择
+    type: select
+    proxies:
+      - 🔰 故障转移
+  - name: 💬 Ai平台
+    type: select
+    proxies:
+      - 🚀 节点选择
+      - 🔰 故障转移
+  - name: 🔰 故障转移
+    type: fallback
+    interval: 185
+    url: https://www.gstatic.com/generate_204
+    proxies: []
+  - name: 🎯 全球直连
+    type: select
+    proxies:
+      - DIRECT
+rules:
+  # Claude / Anthropic
+  - DOMAIN-SUFFIX,anthropic.com,💬 Ai平台
+  - DOMAIN-SUFFIX,claude.ai,💬 Ai平台
+  - DOMAIN-SUFFIX,claudeusercontent.com,💬 Ai平台
+  - DOMAIN-SUFFIX,claude.com,💬 Ai平台
+  - DOMAIN-KEYWORD,claude,💬 Ai平台
+  - DOMAIN-KEYWORD,anthropic,💬 Ai平台
+  # OpenAI / ChatGPT
+  - DOMAIN-SUFFIX,openai.com,💬 Ai平台
+  - DOMAIN-SUFFIX,chatgpt.com,💬 Ai平台
+  - DOMAIN-SUFFIX,oaistatic.com,💬 Ai平台
+  - DOMAIN-SUFFIX,oaiusercontent.com,💬 Ai平台
+  - DOMAIN-SUFFIX,openaiapi-site.azureedge.net,💬 Ai平台
+  - DOMAIN-SUFFIX,sora.com,💬 Ai平台
+  - DOMAIN-KEYWORD,chatgpt,💬 Ai平台
+  - DOMAIN-KEYWORD,openai,💬 Ai平台
+  # Gemini
+  - DOMAIN-SUFFIX,ai.google.dev,💬 Ai平台
+  - DOMAIN-SUFFIX,aistudio.google.com,💬 Ai平台
+  - DOMAIN-SUFFIX,gemini.google.com,💬 Ai平台
+  - DOMAIN-SUFFIX,googleapis.com,💬 Ai平台
+  - DOMAIN-SUFFIX,google.com,💬 Ai平台
+  - DOMAIN,ai.google.dev,💬 Ai平台
+  - DOMAIN,bard.google.com,💬 Ai平台
+  - DOMAIN,gemini.google.com,💬 Ai平台
+  - DOMAIN,generativelanguage.googleapis.com,💬 Ai平台
+  - DOMAIN-SUFFIX,auth0.com,💬 Ai平台
+  - DOMAIN-SUFFIX,bard.google.com,💬 Ai平台
+  - DOMAIN-SUFFIX,makersuite.google.com,💬 Ai平台
+  # Microsoft Copilot / Bing
+  - DOMAIN,api.githubcopilot.com,💬 Ai平台
+  - DOMAIN,copilot-proxy.githubusercontent.com,💬 Ai平台
+  - DOMAIN,sydney.bing.com,💬 Ai平台
+  - DOMAIN-SUFFIX,ai.azure.com,💬 Ai平台
+  - DOMAIN-SUFFIX,copilot.cloud.microsoft,💬 Ai平台
+  - DOMAIN-SUFFIX,copilot.microsoft.com,💬 Ai平台
+  # 其他 AI 平台与模型服务
+  - DOMAIN,api.groq.com,💬 Ai平台
+  - DOMAIN,api.together.xyz,💬 Ai平台
+  - DOMAIN,console.groq.com,💬 Ai平台
+  - DOMAIN-SUFFIX,meta.ai,💬 Ai平台
+  - DOMAIN-SUFFIX,mistral.ai,💬 Ai平台
+  - DOMAIN-SUFFIX,perplexity.ai,💬 Ai平台
+  # JetBrains AI
+  - DOMAIN-SUFFIX,grazie.ai,💬 Ai平台
+  - DOMAIN-SUFFIX,grazie.aws.intellij.net,💬 Ai平台
+  # AI 平台通用依赖与验证服务
+  - DOMAIN-SUFFIX,client-api.arkoselabs.com,💬 Ai平台
+  - DOMAIN-SUFFIX,challenges.cloudflare.com,💬 Ai平台
+  - DOMAIN-SUFFIX,events.statsigapi.net,💬 Ai平台
+  - DOMAIN-SUFFIX,featuregates.org,💬 Ai平台
+  - DOMAIN-SUFFIX,identrust.com,💬 Ai平台
+  - DOMAIN-SUFFIX,intercom.io,💬 Ai平台
+  - DOMAIN-SUFFIX,intercomcdn.com,💬 Ai平台
+  - DOMAIN-SUFFIX,sentry.io,💬 Ai平台
+  - DOMAIN-SUFFIX,stripe.com,💬 Ai平台
+  # ping0.cc
+  - DOMAIN-SUFFIX,ping0.cc,💬 Ai平台
+  # 直连
+  - DOMAIN-KEYWORD,tracker,🎯 全球直连
+  - DOMAIN-SUFFIX,lan,🎯 全球直连
+  - DOMAIN-SUFFIX,local,🎯 全球直连
+  - DOMAIN-SUFFIX,localhost,🎯 全球直连
+  - GEOIP,CN,🎯 全球直连
+  - MATCH,🚀 节点选择
