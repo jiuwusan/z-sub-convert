@@ -1,0 +1,15 @@
+port: 7890
+socks-port: 7891
+redir-port: 7892
+mixed-port: 7893
+tproxy-port: 7895
+mode: direct
+log-level: silent
+allow-lan: true
+bind-address: "*"
+external-controller: 0.0.0.0:9090
+experimental:
+  ignore-resolve-fail: true
+authentication:
+  - Clash:uKlYPsb3
+secret: ZkD953HzR497!
