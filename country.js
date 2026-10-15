@@ -1,6 +1,14 @@
 'use strict';
 
-const PRIORITY_NAMES = ['新加坡', '日本', '美国', '香港', '台湾', '韩国'];
+const PRIORITY_NAMES = ['新加坡', '美国', '日本'];
+const DEFERRED_NAMES = ['香港', '台湾'];
+
+function countryPriority(name) {
+  const priority = PRIORITY_NAMES.indexOf(name);
+  if (priority !== -1) return priority;
+  const deferred = DEFERRED_NAMES.indexOf(name);
+  return PRIORITY_NAMES.length + (deferred === -1 ? 0 : deferred + 1);
+}
 
 const COUNTRY_DATA = [
   ['SG', '🇸🇬', '新加坡', ['Singapore', '狮城']],
@@ -54,9 +62,7 @@ const COUNTRIES = COUNTRY_DATA.map(([code, flag, name, aliases]) => ({
   flag,
   name,
   aliases: [name, ...aliases],
-  priority: PRIORITY_NAMES.indexOf(name) === -1
-    ? PRIORITY_NAMES.length
-    : PRIORITY_NAMES.indexOf(name)
+  priority: countryPriority(name)
 }));
 
 const OTHER = Object.freeze({

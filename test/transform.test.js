@@ -36,6 +36,7 @@ test('sorts generated groups by protocol then country and injects both template 
   const output = transformConfig(template, [[
     { name: 'US hy2', type: 'hysteria2', server: 'hy.example', port: 443 },
     { name: 'Japan ss', type: 'ss', server: 'jp.example', port: 443 },
+    { name: 'US ss', type: 'ss', server: 'us.example', port: 443 },
     { name: 'SG ss', type: 'ss', server: 'sg.example', port: 443 },
     { name: 'US ssr', type: 'ssr', server: 'ssr.example', port: 443 },
     { name: 'SG trojan', type: 'trojan', server: 'trojan.example', port: 443 }
@@ -44,6 +45,7 @@ test('sorts generated groups by protocol then country and injects both template 
   const generatedNames = output['proxy-groups'].slice(3).map(({ name }) => name);
   assert.deepEqual(generatedNames, [
     '🇸🇬 SS 新加坡',
+    '🇺🇸 SS 美国',
     '🇯🇵 SS 日本',
     '🇺🇸 SSR 美国',
     '🇺🇸 HYSTERIA2 美国',

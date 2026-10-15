@@ -33,11 +33,15 @@ test('returns the neutral other country for missing or unknown names', () => {
   assert.deepEqual(detectCountry(undefined), expected);
 });
 
-test('orders priority countries first, recognized countries alphabetically, and other last', () => {
+test('orders SG US JP first, other recognized countries alphabetically, then HK TW and unknown', () => {
   const countries = [
     detectCountry('Canada'),
     detectCountry('Moon'),
     detectCountry('Japan'),
+    detectCountry('United States'),
+    detectCountry('Hong Kong'),
+    detectCountry('Taiwan'),
+    detectCountry('South Korea'),
     detectCountry('Germany'),
     detectCountry('Singapore')
   ];
@@ -45,6 +49,6 @@ test('orders priority countries first, recognized countries alphabetically, and 
   countries.sort(compareCountries);
 
   assert.deepEqual(countries.map(({ name }) => name), [
-    '新加坡', '日本', '德国', '加拿大', '其他'
+    '新加坡', '美国', '日本', '德国', '韩国', '加拿大', '香港', '台湾', '其他'
   ]);
 });
