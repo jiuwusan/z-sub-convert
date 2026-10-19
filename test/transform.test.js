@@ -75,6 +75,24 @@ test('keeps source proxy order but numbers each country across protocol groups',
   assert.equal(new Set(output.proxies.map(({ name }) => name)).size, 3);
 });
 
+for (const [count, expectedNames] of [
+  [1, ['🇸🇬 新加坡 01']],
+  [2, ['🇸🇬 新加坡 02', '🇸🇬 新加坡 01']],
+  [3, ['🇸🇬 新加坡 02', '🇸🇬 新加坡 01', '🇸🇬 新加坡 03']]
+]) {
+  test(`swaps only the first two children in a country group with ${count} proxies`, () => {
+    const source = Array.from({ length: count }, (_, index) => ({
+      name: `SG ${index + 1}`, type: 'ss', server: `sg-${index + 1}`, port: 443
+    }));
+    const output = transformConfig(makeTemplate(), [source]);
+    const group = output['proxy-groups'].find(({ name }) => name === '🇸🇬 SS 新加坡');
+
+    assert.deepEqual(group.proxies, expectedNames);
+    assert.deepEqual(output.proxies.map(({ server }) => server), source.map(({ server }) => server));
+    assert.equal(output.proxies[0].name, '🇸🇬 新加坡 01');
+  });
+}
+
 test('pads proxy numbers to two digits without truncating 100', () => {
   const proxies = Array.from({ length: 100 }, (_, index) => ({
     name: `JP ${index + 1}`,

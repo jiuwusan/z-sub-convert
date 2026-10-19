@@ -102,6 +102,9 @@ function transformConfig(template, upstreamProxyLists) {
       record.assignedName = `${group.country.flag} ${group.country.name} ${String(next).padStart(2, '0')}`;
       return record.assignedName;
     });
+    if (proxyNames.length >= 2) {
+      [proxyNames[0], proxyNames[1]] = [proxyNames[1], proxyNames[0]];
+    }
     return {
       name: `${group.country.flag} ${group.protocol.toLocaleUpperCase('en-US')} ${group.country.name}`,
       interval: 305,
