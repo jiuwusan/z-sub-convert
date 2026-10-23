@@ -1,6 +1,6 @@
 'use strict';
 
-const PRIORITY_NAMES = ['新加坡', '美国', '日本'];
+const PRIORITY_NAMES = ['美国', '日本', '新加坡'];
 const DEFERRED_NAMES = ['香港', '台湾'];
 
 function countryPriority(name) {

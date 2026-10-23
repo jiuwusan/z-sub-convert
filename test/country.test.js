@@ -7,7 +7,7 @@ const { detectCountry, compareCountries } = require('../country');
 
 test('detects countries by flag, Chinese name, English name, and independent code', () => {
   assert.deepEqual(detectCountry('🇸🇬 premium'), {
-    code: 'SG', flag: '🇸🇬', name: '新加坡', priority: 0
+    code: 'SG', flag: '🇸🇬', name: '新加坡', priority: 2
   });
   assert.equal(detectCountry('日本高速节点').code, 'JP');
   assert.equal(detectCountry('United States west').code, 'US');
@@ -33,7 +33,7 @@ test('returns the neutral other country for missing or unknown names', () => {
   assert.deepEqual(detectCountry(undefined), expected);
 });
 
-test('orders SG US JP first, other recognized countries alphabetically, then HK TW and unknown', () => {
+test('orders US JP SG first, other recognized countries alphabetically, then HK TW and unknown', () => {
   const countries = [
     detectCountry('Canada'),
     detectCountry('Moon'),
@@ -49,6 +49,6 @@ test('orders SG US JP first, other recognized countries alphabetically, then HK 
   countries.sort(compareCountries);
 
   assert.deepEqual(countries.map(({ name }) => name), [
-    '新加坡', '美国', '日本', '德国', '韩国', '加拿大', '香港', '台湾', '其他'
+    '美国', '日本', '新加坡', '德国', '韩国', '加拿大', '香港', '台湾', '其他'
   ]);
 });

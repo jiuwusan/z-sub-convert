@@ -44,9 +44,9 @@ test('sorts generated groups by protocol then country and injects both template 
 
   const generatedNames = output['proxy-groups'].slice(3).map(({ name }) => name);
   assert.deepEqual(generatedNames, [
-    '🇸🇬 SS 新加坡',
     '🇺🇸 SS 美国',
     '🇯🇵 SS 日本',
+    '🇸🇬 SS 新加坡',
     '🇺🇸 SSR 美国',
     '🇺🇸 HYSTERIA2 美国',
     '🇸🇬 TROJAN 新加坡'
