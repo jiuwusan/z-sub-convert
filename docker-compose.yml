@@ -1,6 +1,7 @@
 services:
   sub-convert:
     image: jiuwusan/z-sub-convert:latest
+    build: .
     container_name: clash-sub-convert
     restart: unless-stopped
     ports:
@@ -11,3 +12,9 @@ services:
       UPSTREAM_TIMEOUT_MS: ${UPSTREAM_TIMEOUT_MS:-15000}
       MAX_UPSTREAM_BYTES: ${MAX_UPSTREAM_BYTES:-10485760}
       TEMPLATE_PATH: /app/prds/template.yaml
+      DATA_DIR: /app/data
+    volumes:
+      - sub-convert-data:/app/data
+
+volumes:
+  sub-convert-data:

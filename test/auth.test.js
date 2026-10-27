@@ -1,0 +1,31 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { mkdtemp, rm } = require('node:fs/promises');
+const { join } = require('node:path');
+const { tmpdir } = require('node:os');
+const { Store } = require('../store');
+const { Auth } = require('../auth');
+
+test('first setup is exclusive, credentials persist, sessions expire and reset revokes sessions', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'managed-auth-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = await Store.open({ directory, templatePath: join(__dirname, '../prds/template.yaml') });
+  let now = 1000;
+  const auth = new Auth(store, { resetKey: 'current-start-key', now: () => now });
+  const setup = await Promise.allSettled([auth.setup('admin', 'password123'), auth.setup('other', 'password123')]);
+  assert.equal(setup.filter(r => r.status === 'fulfilled').length, 1);
+  assert.notEqual(store.read().account.hash, 'password123');
+  await assert.rejects(auth.login('admin', 'wrong-password'));
+  const session = await auth.login(`  ${store.read().account.username}  `, 'password123');
+  assert.equal(auth.session(session.token).username, store.read().account.username);
+  assert.ok(session.csrf);
+  await assert.rejects(auth.reset('old-start-key', 'new-admin', 'new-password'));
+  await auth.reset('current-start-key', 'new-admin', 'new-password');
+  assert.equal(auth.session(session.token), null);
+  const restarted = new Auth(await Store.open({ directory }), { resetKey: 'next-start-key', now: () => now });
+  await assert.rejects(restarted.reset('current-start-key', 'admin', 'password123'));
+  const second = await restarted.login('new-admin', 'new-password');
+  now += 13 * 60 * 60 * 1000;
+  assert.equal(restarted.session(second.token), null);
+});

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>订阅管理 · Sub Convert</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/admin.js" defer></script>
+</head>
+<body>
+  <div id="loading" class="loading" role="status">正在连接订阅服务…</div>
+  <section id="auth-view" class="auth-layout" hidden>
+    <div class="auth-story">
+      <a class="brand" href="/">S<span>SUB CONVERT</span></a>
+      <div><span class="eyebrow">一个入口，管理所有订阅</span><h1>把连接，<br>交给更简单的方式。</h1><p>整理订阅来源，定制转换模板，<br>为你的客户端提供一个稳定的订阅地址。</p></div>
+      <span class="story-foot">Clash.Meta / Mihomo</span>
+    </div>
+    <main class="auth-main">
+      <form id="auth-form" class="auth-card">
+        <span class="eyebrow">订阅控制台</span>
+        <h2 id="auth-title">欢迎回来</h2>
+        <p id="auth-description" class="muted">登录以管理你的订阅。</p>
+        <label id="reset-field" hidden>账号重置 key<input id="reset-key" name="key" autocomplete="off" placeholder="从当前容器启动日志中获取"></label>
+        <label>用户名<input id="username" name="username" required maxlength="64" autocomplete="username" placeholder="输入用户名"></label>
+        <label>密码<input id="password" name="password" required type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="至少 8 个字符"></label>
+        <p id="auth-error" class="error" role="alert" hidden></p>
+        <button id="auth-submit" class="primary wide" type="submit">登录</button>
+        <button id="auth-switch" class="text-button wide" type="button">忘记账号或密码？</button>
+        <p id="reset-help" class="hint" hidden>执行 docker logs -f 容器名，找到 Account reset key。重启后旧 key 失效。</p>
+      </form>
+    </main>
+  </section>
+
+  <div id="app" class="app-layout" hidden>
+    <aside class="sidebar">
+      <a class="brand" href="/">S<span>SUB CONVERT<small>订阅管理控制台</small></span></a>
+      <div class="nav-label">工作空间</div>
+      <nav aria-label="后台导航">
+        <button data-tab="subscriptions" class="nav-item active"><span class="nav-symbol">⇄</span>系统订阅<span id="nav-count">0</span></button>
+        <button data-tab="sources" class="nav-item"><span class="nav-symbol">↗</span>第三方订阅源</button>
+        <button data-tab="templates" class="nav-item"><span class="nav-symbol">▤</span>订阅模板</button>
+      </nav>
+      <div class="sidebar-note"><span class="live-dot"></span>按需更新，稳定连接<p>缓存有效期 23 小时<br>刷新失败保留上次有效内容</p></div>
+      <div class="account"><span class="avatar">管</span><div><strong id="account-name">管理员</strong><small>管理员</small></div><button id="logout" class="text-button" title="退出登录">退出</button></div>
+    </aside>
+    <main class="workspace">
+      <header class="topbar"><span>工作空间 <span class="slash">/</span> <strong id="breadcrumb">系统订阅</strong></span><span class="topbar-end"><span class="live-dot"></span>订阅服务</span></header>
+      <div class="content">
+        <div class="page-heading"><div><span class="eyebrow">SUBSCRIPTION WORKSPACE</span><h1 id="page-title">系统订阅</h1><p id="page-description" class="muted">将多个来源与模板组合，生成专属订阅链接。</p></div><div class="toolbar"><button id="reload" class="secondary" title="重新读取列表">↻ 更新列表</button><button id="refresh-all" class="secondary">全部刷新</button><button id="add-record" class="primary">＋ 新增订阅</button></div></div>
+        <div id="stats" class="stats">
+          <div><span>系统订阅</span><strong id="stat-subscriptions">0</strong><small>固定地址，随时订阅</small></div>
+          <div><span>可用缓存</span><strong id="stat-cached">0</strong><small>23 小时内更新成功</small></div>
+          <div><span>第三方来源</span><strong id="stat-sources">0</strong><small>统一维护，灵活组合</small></div>
+          <div><span>订阅模板</span><strong id="stat-templates">0</strong><small>每份订阅，自由选择</small></div>
+        </div>
+        <section class="table-panel" aria-labelledby="list-title">
+          <div class="panel-heading"><h2 id="list-title">全部订阅 <span id="list-count" class="count">0</span></h2><span id="list-hint" class="muted">保存配置不会立即拉取第三方订阅</span></div>
+          <div class="table-scroll"><table><thead id="table-head"></thead><tbody id="table-body"></tbody></table></div>
+          <div id="empty" class="empty" hidden><span class="empty-icon">⇄</span><h3 id="empty-title">创建你的第一份订阅</h3><p id="empty-description">先添加第三方订阅源，再选择模板组合成系统订阅。</p><button id="empty-action" class="primary">添加第三方订阅源</button></div>
+          <div class="panel-footer"><span id="total-label">共 0 条记录</span><span id="cache-hint">访问时按需拉取 · 支持手动刷新</span></div>
+        </section>
+        <p id="page-error" class="error page-error" role="alert" hidden></p>
+        <footer class="page-footer"><span>Sub Convert</span><span>为 Clash.Meta / Mihomo 提供订阅转换</span></footer>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="editor" aria-labelledby="editor-title">
+    <form id="editor-form">
+      <header class="dialog-heading"><div><span class="eyebrow">配置管理</span><h2 id="editor-title">新增订阅</h2></div><button id="close-editor" class="icon-button" type="button" aria-label="关闭">×</button></header>
+      <div id="editor-fields" class="dialog-fields"></div>
+      <p id="editor-error" class="error" role="alert" hidden></p>
+      <footer class="dialog-footer"><button id="cancel-editor" class="secondary" type="button">取消</button><button id="save-record" class="primary" type="submit">保存</button></footer>
+    </form>
+  </dialog>
+  <dialog id="copy-dialog" aria-labelledby="copy-title"><div class="dialog-fields"><h2 id="copy-title">订阅链接</h2><p class="muted">可复制后导入 Clash.Meta / Mihomo 客户端。</p><input id="copy-url" readonly aria-label="订阅链接"><button id="close-copy" class="primary wide">完成</button></div></dialog>
+  <dialog id="results-dialog" aria-labelledby="results-title"><div class="dialog-fields"><h2 id="results-title">全部刷新结果</h2><p id="results-summary" class="muted"></p><ul id="results-list" class="results-list"></ul><button id="close-results" class="primary wide">完成</button></div></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

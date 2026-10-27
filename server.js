@@ -12,6 +12,10 @@ const {
   fetchSubscriptions
 } = require('./fetch-subscriptions');
 const { transformConfig } = require('./transform');
+const { Store } = require('./store');
+const { Auth, AppError } = require('./auth');
+const { Managed } = require('./managed');
+const { createAdminHandler } = require('./admin-api');
 
 class TemplateError extends Error {
   constructor(message, options) {
@@ -63,9 +67,45 @@ function createApp(options = {}) {
   const logger = options.logger || console;
   const now = options.now || Date.now;
 
-  return http.createServer(async (request, response) => {
+  const dataDir = options.dataDir || process.env.DATA_DIR;
+  const ready = dataDir ? Store.open({ directory: dataDir, templatePath }).then(store => {
+    const auth = new Auth(store, { resetKey: options.resetKey, now });
+    const managed = new Managed(store, { ...options, now, timeoutMs, maxBytes });
+    return { store, auth, managed, admin: createAdminHandler({ store, auth, managed }) };
+  }) : Promise.resolve(null);
+  ready.catch(() => {}); // Request/startup paths report initialization failures.
+  const assets = {
+    '/': ['index.html', 'text/html; charset=utf-8'],
+    '/admin': ['index.html', 'text/html; charset=utf-8'],
+    '/admin/': ['index.html', 'text/html; charset=utf-8'],
+    '/admin.js': ['admin.js', 'text/javascript; charset=utf-8'],
+    '/style.css': ['style.css', 'text/css; charset=utf-8']
+  };
+  const server = http.createServer(async (request, response) => {
+    response.setHeader('x-content-type-options', 'nosniff');
+    response.setHeader('referrer-policy', 'no-referrer');
     const requestUrl = new URL(request.url || '/', 'http://localhost');
     const headOnly = request.method === 'HEAD';
+
+    if (requestUrl.pathname.startsWith('/api/') || assets[requestUrl.pathname]) {
+      try {
+        const context = await ready;
+        if (!context) throw new AppError('后台尚未启用，请配置 DATA_DIR', 503);
+        if (requestUrl.pathname.startsWith('/api/')) await context.admin(request, response, requestUrl);
+        else {
+          if (!['GET', 'HEAD'].includes(request.method)) throw new AppError('请求方法不允许', 405);
+          const [file, type] = assets[requestUrl.pathname];
+          const body = await readFile(path.join(__dirname, 'public', file));
+          response.setHeader('content-security-policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+          send(response, 200, { 'content-type': type, 'cache-control': 'no-cache' }, body, headOnly);
+        }
+      } catch (error) {
+        const status = error instanceof AppError || error instanceof SubscriptionError ? error.statusCode : 500;
+        sendJson(response, status, { error: status === 500 ? '服务暂不可用，请检查服务器日志' : error.message }, headOnly);
+        if (status === 500) logger.error('Admin request failed');
+      }
+      return;
+    }
 
     if (request.method !== 'GET' && !headOnly) {
       sendJson(response, 405, { error: 'Method not allowed' }, false, { allow: 'GET, HEAD' });
@@ -86,6 +126,24 @@ function createApp(options = {}) {
     }
 
     try {
+      if (requestUrl.searchParams.has('key')) {
+        const context = await ready;
+        if (!context) throw new AppError('订阅不存在', 404);
+        const key = requestUrl.searchParams.get('key');
+        if (headOnly) {
+          if (!context.store.read().subscriptions.some(row => row.key === key)) throw new AppError('订阅不存在', 404);
+          send(response, 200, { 'content-type': 'text/yaml; charset=utf-8', 'cache-control': 'no-store' }, '', true);
+          return;
+        }
+        const result = await context.managed.content(key);
+        send(response, 200, {
+          'content-type': 'text/yaml; charset=utf-8',
+          'cache-control': 'no-store',
+          'x-subscription-cache': result.stale ? 'stale' : 'fresh',
+          'content-disposition': `attachment; filename="config-clash-meta-${now()}.yaml"`
+        }, result.body, headOnly);
+        return;
+      }
       const proxyLists = await fetchSubscriptions(requestUrl.searchParams.get('url'), {
         fetchImpl: options.fetchImpl,
         timeoutMs,
@@ -104,7 +162,7 @@ function createApp(options = {}) {
         'content-disposition': `attachment; filename="config-clash-meta-${now()}.yaml"`
       }, body, headOnly);
     } catch (error) {
-      const statusCode = error instanceof SubscriptionError || error instanceof TemplateError
+      const statusCode = error instanceof SubscriptionError || error instanceof TemplateError || error instanceof AppError
         ? error.statusCode
         : 500;
       const message = statusCode === 500 && !(error instanceof TemplateError)
@@ -114,14 +172,22 @@ function createApp(options = {}) {
       sendJson(response, statusCode, { error: message }, headOnly);
     }
   });
+  server.ready = ready;
+  return server;
 }
 
 function start() {
   const host = process.env.HOST || '0.0.0.0';
   const port = positiveInteger(process.env.PORT, 25500, 'PORT');
-  const server = createApp();
-  server.listen(port, host, () => {
-    console.log(`clash-sub-convert listening on http://${host}:${port}`);
+  const server = createApp({ dataDir: process.env.DATA_DIR || path.join(__dirname, 'data') });
+  server.ready.then(context => {
+    console.log(`Account reset key (rotates on startup): ${context.auth.resetKey}`);
+    server.listen(port, host, () => {
+      console.log(`clash-sub-convert listening on http://${host}:${port}`);
+    });
+  }).catch(() => {
+    console.error('Unable to initialize data directory. Check DATA_DIR permissions and state.json.');
+    process.exitCode = 1;
   });
   return server;
 }

@@ -66,7 +66,7 @@ async function fetchOne(url, options) {
 
   try {
     const response = await fetchImpl(url, {
-      headers: { 'user-agent': 'clash-verge/v2.4.5' },
+      headers: { 'user-agent': options.userAgent ?? 'clash-verge/v2.4.5' },
       signal: AbortSignal.timeout(timeoutMs)
     });
     if (!response.ok) {
@@ -111,6 +111,7 @@ module.exports = {
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_BYTES,
   SubscriptionError,
+  fetchOne,
   splitSubscriptionUrls,
   fetchSubscriptions
 };
