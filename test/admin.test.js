@@ -58,8 +58,10 @@ test('initializes without key, protects management with auth/CSRF and supports c
   response = await fetch(`${f.base}/sub?key=${sub.key}`);
   assert.equal(response.status, 200);
   assert.match(await response.text(), /美国/);
-  assert.equal((await f.request(`/api/subscriptions/${sub.id}/refresh`, 'POST', {})).status, 200);
-  assert.equal((await (await f.request('/api/refresh-all', 'POST', {})).json()).results.length, 1);
+  assert.equal((await f.request(`/api/sources/${source.id}/refresh`, 'POST', {})).status, 200);
+  assert.equal((await (await f.request('/api/sources/refresh-all', 'POST', {})).json()).results.length, 1);
+  assert.equal((await f.request(`/api/subscriptions/${sub.id}/refresh`, 'POST', {})).status, 404);
+  assert.equal((await f.request('/api/refresh-all', 'POST', {})).status, 404);
   assert.equal((await f.request(`/api/sources/${source.id}`)).status, 200);
   assert.equal((await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { name: '改名', sourceIds: [source.id], templateId: state.templates[0].id })).status, 200);
   assert.equal((await f.request('/api/reset', 'POST', { key: 'wrong', username: 'new-admin', password: 'password123' })).status, 403);

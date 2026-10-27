@@ -3,8 +3,8 @@
 const $ = selector => document.querySelector(selector);
 const state = { tab: 'subscriptions', data: { sources: [], templates: [], subscriptions: [] }, csrf: '', mode: 'login', initialized: false, editing: null, refreshing: new Set(), allBusy: false };
 const labels = {
-  subscriptions: { title: '系统订阅', list: '全部订阅', add: '新增订阅', description: '将多个来源与模板组合，生成专属订阅链接。', heads: ['订阅名称', '第三方来源 / 模板', '缓存状态', '最近刷新成功', '最近刷新结果', '操作'] },
-  sources: { title: '第三方订阅源', list: '全部来源', add: '新增来源', description: '统一维护第三方链接和 User-Agent，供系统订阅组合使用。', heads: ['来源名称', '订阅链接摘要', 'User-Agent', '关联订阅', '操作'] },
+  subscriptions: { title: '系统订阅', list: '全部订阅', add: '新增订阅', description: '使用第三方来源缓存和所选模板生成专属订阅链接。', heads: ['订阅名称', '第三方来源 / 模板', '操作'] },
+  sources: { title: '第三方订阅源', list: '全部来源', add: '新增来源', description: '维护并刷新第三方来源，缓存结果供所有关联订阅复用。', heads: ['来源名称', '订阅链接摘要 / User-Agent', '关联订阅', '缓存状态', '最近刷新成功', '最近刷新结果', '操作'] },
   templates: { title: '订阅模板', list: '全部模板', add: '新增模板', description: '维护转换模板，为每份系统订阅选择合适的配置。', heads: ['模板名称', '关联订阅', '操作'] }
 };
 const cacheLabels = { empty: '无缓存', valid: '缓存有效', expired: '已过期', invalidated: '待刷新' };
@@ -108,8 +108,8 @@ function render() {
   $('#page-title').textContent = config.title;
   $('#page-description').textContent = config.description;
   $('#add-record').textContent = `＋ ${config.add}`;
-  $('#refresh-all').hidden = tab !== 'subscriptions';
-  $('#refresh-all').disabled = state.allBusy || !data.subscriptions.length;
+  $('#refresh-all').hidden = tab !== 'sources';
+  $('#refresh-all').disabled = state.allBusy || !data.sources.length;
   $('#refresh-all').textContent = state.allBusy ? '正在全部刷新…' : '全部刷新';
   for (const button of document.querySelectorAll('[data-tab]')) {
     button.classList.toggle('active', button.dataset.tab === tab);
@@ -117,7 +117,7 @@ function render() {
   }
   $('#stat-subscriptions').textContent = data.subscriptions.length;
   $('#nav-count').textContent = data.subscriptions.length;
-  $('#stat-cached').textContent = data.subscriptions.filter(row => row.cacheStatus === 'valid').length;
+  $('#stat-cached').textContent = data.sources.filter(row => row.cacheStatus === 'valid').length;
   $('#stat-sources').textContent = data.sources.length;
   $('#stat-templates').textContent = data.templates.length;
   const heading = node('tr');
@@ -127,8 +127,8 @@ function render() {
   $('#table-body').replaceChildren();
   $('#empty').hidden = data[tab].length > 0;
   $('#total-label').textContent = `共 ${data[tab].length} 条记录`;
-  $('#cache-hint').textContent = tab === 'subscriptions' ? '访问时按需拉取 · 支持手动刷新' : '修改配置后，关联订阅将在下次访问时刷新';
-  $('#list-hint').textContent = tab === 'templates' ? '模板在保存时校验，修改后自动应用到关联订阅' : '保存配置不会立即拉取第三方订阅';
+  $('#cache-hint').textContent = tab === 'sources' ? '来源缓存有效期 23 小时 · 支持手动刷新' : tab === 'templates' ? '模板修改后重新生成结果，无需刷新来源' : '关联订阅共享来源缓存 · 按当前模板生成';
+  $('#list-hint').textContent = tab === 'templates' ? '模板在保存时校验，修改后自动应用到关联订阅' : tab === 'sources' ? '来源独立缓存，刷新成功后所有关联订阅使用新数据' : '需要更新第三方数据时，请到来源列表刷新';
   const needsSource = tab === 'subscriptions' && !data.sources.length;
   $('#empty-title').textContent = tab === 'subscriptions' ? '创建你的第一份订阅' : tab === 'sources' ? '添加第一个第三方来源' : '创建你的订阅模板';
   $('#empty-description').textContent = tab === 'subscriptions' ? '选择一个或多个第三方来源，再搭配模板生成订阅。' : tab === 'sources' ? '保存来源名称、订阅链接和 User-Agent，供系统订阅使用。' : '粘贴 YAML 或上传模板文件，保存后即可关联到订阅。';
@@ -144,6 +144,11 @@ function render() {
       for (const name of record.sourceNames) sources.append(node('span', 'tag', name));
       sources.append(node('small', 'subline', record.templateName));
       cell(row, sources);
+    } else if (tab === 'sources') {
+      const summary = node('div', '', record.urlSummary);
+      summary.append(node('small', 'subline', record.userAgent));
+      cell(row, summary);
+      cell(row, `${data.subscriptions.filter(sub => sub.sourceIds.includes(record.id)).length} 份订阅`);
       const refreshing = state.refreshing.has(record.id) || record.refreshing || state.allBusy;
       cell(row, node('span', `badge ${refreshing ? 'refreshing' : record.cacheStatus}`, refreshing ? '刷新中…' : cacheLabels[record.cacheStatus]));
       cell(row, formatTime(record.lastSuccessAt));
@@ -151,14 +156,11 @@ function render() {
       const resultEl = node('span', result ? result.ok ? 'result-ok' : 'result-error' : 'muted', result ? result.message : '—');
       if (result) resultEl.title = formatTime(result.at);
       cell(row, resultEl);
-    } else if (tab === 'sources') {
-      cell(row, record.urlSummary);
-      cell(row, record.userAgent);
-      cell(row, `${data.subscriptions.filter(sub => sub.sourceIds.includes(record.id)).length} 份订阅`);
     } else cell(row, `${data.subscriptions.filter(sub => sub.templateId === record.id).length} 份订阅`);
     const actions = node('div', 'row-actions');
     if (tab === 'subscriptions') {
       action(actions, '复制', () => copyLink(record));
+    } else if (tab === 'sources') {
       const refresh = action(actions, '刷新', () => refreshOne(record));
       refresh.disabled = state.refreshing.has(record.id) || state.allBusy || record.refreshing;
     }
@@ -241,7 +243,7 @@ async function edit(resource, id) {
     for (const record of state.data.templates) { const option = node('option', '', record.name); option.value = record.id; select.append(option); }
     if (record.templateId) select.value = record.templateId;
     template.append(select);
-    fields.append(group, template, node('p', 'field-help', '按所选来源的列表顺序合并。保存不拉取，首次访问或点击刷新时获取内容。订阅链接保持不变。'));
+    fields.append(group, template, node('p', 'field-help', '按来源列表顺序合并缓存数据，再应用所选模板。保存不拉取，来源无缓存或已过期时访问才更新；也可到来源列表手动刷新。订阅链接保持不变。'));
   }
   $('#editor-error').hidden = true;
   $('#editor').showModal();
@@ -259,7 +261,7 @@ async function copyLink(record) {
 async function refreshOne(record) {
   state.refreshing.add(record.id);
   render();
-  try { await api(`/subscriptions/${record.id}/refresh`, 'POST', {}); toast(`“${record.name}”刷新成功`); }
+  try { await api(`/sources/${record.id}/refresh`, 'POST', {}); toast(`来源“${record.name}”刷新成功`); }
   catch (error) { toast(error.message); }
   finally { state.refreshing.delete(record.id); await load(); }
 }
@@ -304,9 +306,9 @@ $('#reload').addEventListener('click', async () => {
 $('#refresh-all').addEventListener('click', async () => {
   state.allBusy = true; render();
   try {
-    const { results } = await api('/refresh-all', 'POST', {});
+    const { results } = await api('/sources/refresh-all', 'POST', {});
     const succeeded = results.filter(row => row.ok).length;
-    $('#results-summary').textContent = `共 ${results.length} 条，成功 ${succeeded} 条，失败 ${results.length - succeeded} 条。`;
+    $('#results-summary').textContent = `共 ${results.length} 个来源，成功 ${succeeded} 个，失败 ${results.length - succeeded} 个。`;
     $('#results-list').replaceChildren(...results.map(result => {
       const item = node('li', result.ok ? '' : 'failed');
       item.append(node('strong', '', result.name), node('span', '', result.message)); return item;

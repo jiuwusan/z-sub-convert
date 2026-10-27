@@ -96,7 +96,7 @@ function createAdminHandler({ managed, auth, store }) {
       return;
     }
     if (path === '/api/state' && method === 'GET') { json(200, managed.list()); return; }
-    if (path === '/api/refresh-all' && method === 'POST') {
+    if (path === '/api/sources/refresh-all' && method === 'POST') {
       json(200, { results: await managed.refreshAll() });
       return;
     }
@@ -104,7 +104,7 @@ function createAdminHandler({ managed, auth, store }) {
     if (!match) throw new AppError('接口不存在', 404);
     const [, resource, id, action] = match;
     if (action) {
-      if (resource !== 'subscriptions' || !id || method !== 'POST') throw new AppError('接口不存在', 404);
+      if (resource !== 'sources' || !id || method !== 'POST') throw new AppError('接口不存在', 404);
       json(200, await managed.refresh(id));
     } else if (id && method === 'GET') json(200, managed.get(resource, id));
     else if (!id && method === 'POST') json(201, await managed.save(resource, await readJson(request)));
