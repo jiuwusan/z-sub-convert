@@ -1,9 +1,9 @@
+name: z-sub-convert
+
 services:
-  sub-convert:
+  clash:
     image: jiuwusan/z-sub-convert:latest
-    build: .
-    container_name: clash-sub-convert
-    restart: unless-stopped
+    restart: always
     ports:
       - "${PORT:-25500}:25500"
     environment:
@@ -14,7 +14,13 @@ services:
       TEMPLATE_PATH: /app/prds/template.yaml
       DATA_DIR: /app/data
     volumes:
-      - sub-convert-data:/app/data
+      - data:/app/data
+    networks:
+      - wk
 
 volumes:
-  sub-convert-data:
+  data:
+
+networks:
+  wk:
+    external: true
