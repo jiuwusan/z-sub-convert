@@ -7,9 +7,19 @@ const { once } = require('node:events');
 
 const {
   SubscriptionError,
+  fetchSubscriptionDocument,
   splitSubscriptionUrls,
   fetchSubscriptions
 } = require('../fetch-subscriptions');
+
+test('fetches and validates a complete document while preserving original text and legacy proxy extraction', async () => {
+  const content = '\uFEFF# provider comment\r\ndns: { enable: true }\r\nproxies:\r\n  - { name: US, type: ss }\r\nproxy-groups: []\r\nrules: [MATCH,DIRECT]\r\n';
+  const options = { fetchImpl: async () => new Response(content) };
+  const result = await fetchSubscriptionDocument(new URL('https://provider.example/sub'), options);
+  assert.equal(result.content, content);
+  assert.deepEqual(result.proxies, [{ name: 'US', type: 'ss' }]);
+  assert.deepEqual(await fetchSubscriptions('https://provider.example/sub', options), [[{ name: 'US', type: 'ss' }]]);
+});
 
 async function listen(t, handler) {
   const server = http.createServer(handler);

@@ -5,7 +5,7 @@ const { readFile, writeFile, unlink } = require('node:fs/promises');
 const { join } = require('node:path');
 const YAML = require('yaml');
 const { AppError } = require('./auth');
-const { fetchOne, SubscriptionError } = require('./fetch-subscriptions');
+const { fetchSubscriptionDocument, parseSubscription, SubscriptionError } = require('./fetch-subscriptions');
 const { transformConfig } = require('./transform');
 
 const CACHE_MS = 23 * 60 * 60 * 1000;
@@ -141,9 +141,15 @@ class Managed {
   async cached(record) {
     if (!record.cache) return null;
     try {
-      const proxies = JSON.parse(await readFile(join(this.store.directory, record.cache.file), 'utf8'));
-      return Array.isArray(proxies) && proxies.length && proxies.every(proxy => proxy && typeof proxy.type === 'string' && proxy.type.trim()) ? proxies : null;
-    } catch (error) { if (error.code === 'ENOENT' || error instanceof SyntaxError) return null; throw error; }
+      const content = await readFile(join(this.store.directory, record.cache.file), 'utf8');
+      if (record.cache.file.endsWith('.yaml')) return { proxies: parseSubscription(content), content };
+      const proxies = JSON.parse(content);
+      return Array.isArray(proxies) && proxies.length && proxies.every(proxy => proxy && typeof proxy.type === 'string' && proxy.type.trim())
+        ? { proxies, content: null } : null;
+    } catch (error) {
+      if (error.code === 'ENOENT' || error instanceof SyntaxError || error instanceof SubscriptionError) return null;
+      throw error;
+    }
   }
 
   refresh(id) {
@@ -162,9 +168,9 @@ class Managed {
     let file;
     let previous;
     try {
-      const proxies = await fetchOne(new URL(source.url), { ...this.options, userAgent: source.userAgent });
-      file = `source-cache-${randomUUID()}.json`;
-      await writeFile(join(this.store.directory, file), JSON.stringify(proxies), { encoding: 'utf8', mode: 0o600 });
+      const { content } = await fetchSubscriptionDocument(new URL(source.url), { ...this.options, userAgent: source.userAgent });
+      file = `source-cache-${randomUUID()}.yaml`;
+      await writeFile(join(this.store.directory, file), content, { encoding: 'utf8', mode: 0o600 });
       await this.store.update(state => {
         const record = find(state, 'sources', source.id);
         if (record.revision !== source.revision) throw new AppError('配置已变更，请重试更新', 409);
@@ -190,10 +196,10 @@ class Managed {
   async currentSource(id) {
     for (let attempt = 0; attempt < 3; attempt++) {
       const source = find(this.store.read(), 'sources', id);
-      const proxies = await this.cached(source);
+      const cached = await this.cached(source);
       const current = find(this.store.read(), 'sources', id);
       if (current.revision !== source.revision || current.cache?.file !== source.cache?.file) continue;
-      return { source, proxies };
+      return { source, proxies: cached?.proxies ?? null, content: cached?.content ?? null };
     }
     throw new AppError('来源正在更新，请重试', 409);
   }
@@ -211,13 +217,14 @@ class Managed {
   }
 
   async preview(id) {
-    const { source, proxies } = await this.currentSource(id);
+    const { source, proxies, content } = await this.currentSource(id);
     return {
       name: source.name,
       cacheStatus: proxies === null ? 'empty' : this.status(source),
       lastSuccessAt: source.lastSuccessAt,
       proxyCount: proxies?.length || 0,
-      content: proxies === null ? null : YAML.stringify({ proxies }, { lineWidth: 0 })
+      content,
+      requiresUpdate: proxies !== null && content === null
     };
   }
 

@@ -13,7 +13,8 @@ async function fixture(t, dataDir) {
     t.after(() => rm(dataDir, { recursive: true, force: true }));
   }
   let upstreamCalls = 0;
-  const app = createApp({ dataDir, resetKey: 'this-boot-key', logger: { error() {} }, fetchImpl: async () => { upstreamCalls++; return new Response('proxies:\n  - name: US test\n    type: ss\n    server: test.example\n    port: 443\n'); } });
+  const upstreamBody = '# provider result\r\ndns: {enable: true}\r\nproxies:\r\n  - name: US test\r\n    type: ss\r\n    server: test.example\r\n    port: 443\r\nproxy-groups: []\r\nrules: ["MATCH,DIRECT"]\r\n';
+  const app = createApp({ dataDir, resetKey: 'this-boot-key', logger: { error() {} }, fetchImpl: async () => { upstreamCalls++; return new Response(upstreamBody); } });
   app.listen(0, '127.0.0.1');
   await once(app, 'listening');
   t.after(() => new Promise(resolve => { app.close(resolve); app.closeAllConnections(); }));
@@ -31,7 +32,7 @@ async function fixture(t, dataDir) {
     assert.match(result.headers.get('set-cookie'), /HttpOnly/);
     return { cookie, csrf };
   }
-  return { app, base, dataDir, request, login, upstreamCalls: () => upstreamCalls };
+  return { app, base, dataDir, request, login, upstreamBody, upstreamCalls: () => upstreamCalls };
 }
 
 test('initializes without key, protects management with auth/CSRF and supports complete subscription CRUD', async t => {
@@ -67,6 +68,7 @@ test('initializes without key, protects management with auth/CSRF and supports c
   const previewData = await preview.json();
   assert.equal(previewData.proxyCount, 1);
   assert.match(previewData.content, /US test/);
+  assert.equal(previewData.content, f.upstreamBody);
   assert.equal(f.upstreamCalls(), 1);
   assert.equal((await f.request(`/api/sources/${source.id}/refresh`, 'POST', {})).status, 200);
   assert.equal((await (await f.request('/api/sources/refresh-all', 'POST', {})).json()).results.length, 1);

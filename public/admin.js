@@ -1,7 +1,7 @@
 'use strict';
 
 const $ = selector => document.querySelector(selector);
-const state = { tab: 'subscriptions', data: { sources: [], templates: [], subscriptions: [] }, csrf: '', mode: 'login', initialized: false, authenticated: false, ready: false, route: '', returnTo: 'subscriptions', navigation: 0, editing: null, refreshing: new Set(), allBusy: false };
+const state = { tab: 'subscriptions', data: { sources: [], templates: [], subscriptions: [] }, csrf: '', mode: 'login', initialized: false, authenticated: false, ready: false, route: '', returnTo: 'subscriptions', navigation: 0, editing: null, previewContent: '', refreshing: new Set(), allBusy: false };
 const labels = {
   subscriptions: { title: '系统订阅', list: '全部订阅', add: '新增订阅', description: '使用第三方来源缓存和所选模板生成专属订阅链接。', heads: ['订阅名称', '第三方来源 / 模板', '操作'] },
   sources: { title: '第三方订阅源', list: '全部来源', add: '新增来源', description: '维护并更新第三方来源，缓存结果供所有关联订阅复用。', heads: ['来源名称', '订阅链接摘要 / User-Agent', '关联订阅', '缓存状态', '最近更新成功', '最近更新结果', '操作'] },
@@ -324,12 +324,15 @@ async function previewSource(record) {
   $('#preview-meta').textContent = `${result.proxyCount} 个节点 · 最近更新成功：${formatTime(result.lastSuccessAt)}`;
   const notes = {
     empty: '暂无可用缓存，请先在来源列表点击“更新”。',
-    valid: '展示最近一次成功缓存的节点结果，未套用系统订阅模板。',
+    valid: '展示第三方返回的完整订阅原文，保留原有配置、分组、规则和注释，未套用本系统模板。',
     expired: '缓存已过期，以下为上次成功保留的结果；更新来源后可查看最新内容。',
     invalidated: '来源配置已变更，以下为变更前保留的缓存；更新来源后可查看最新内容。'
   };
-  $('#preview-note').textContent = notes[result.cacheStatus];
-  $('#preview-content').value = result.content || '';
+  $('#preview-note').textContent = result.requiresUpdate
+    ? '当前旧版缓存仅包含代理节点，请点击来源“更新”获取完整第三方订阅结果。'
+    : notes[result.cacheStatus];
+  state.previewContent = result.content || '';
+  $('#preview-content').value = state.previewContent;
   $('#preview-content').hidden = result.content === null;
   $('#copy-preview').disabled = result.content === null;
   $('#preview-dialog').showModal();
@@ -413,11 +416,14 @@ for (const id of ['close-editor', 'cancel-editor']) $(`#${id}`).addEventListener
 $('#close-copy').addEventListener('click', () => $('#copy-dialog').close());
 $('#close-results').addEventListener('click', () => $('#results-dialog').close());
 for (const id of ['close-preview', 'done-preview']) $(`#${id}`).addEventListener('click', () => $('#preview-dialog').close());
-$('#preview-dialog').addEventListener('close', () => { $('#preview-content').value = ''; });
+$('#preview-dialog').addEventListener('close', () => { state.previewContent = ''; $('#preview-content').value = ''; });
 $('#copy-preview').addEventListener('click', async () => {
+  const navigation = state.navigation;
+  const original = state.previewContent;
   const content = $('#preview-content');
-  try { await navigator.clipboard.writeText(content.value); toast('预览内容已复制'); }
-  catch { content.focus(); content.select(); toast('内容已选中，可手动复制'); }
+  const current = () => navigation === state.navigation && state.authenticated && $('#preview-dialog').open && state.previewContent === original;
+  try { await navigator.clipboard.writeText(original); if (current()) toast('预览内容已复制'); }
+  catch { if (current()) { content.focus(); content.select(); toast('内容已选中，可手动复制'); } }
 });
 
 async function initialize() {

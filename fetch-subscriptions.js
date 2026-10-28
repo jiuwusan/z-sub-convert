@@ -78,10 +78,31 @@ async function readBoundedBody(response, maxBytes) {
     body.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder().decode(body);
+  return new TextDecoder('utf-8', { ignoreBOM: true }).decode(body);
 }
 
-async function fetchOne(url, options) {
+function parseSubscription(content) {
+  let document;
+  try {
+    document = YAML.parse(content);
+  } catch (error) {
+    throw new SubscriptionError('Upstream subscription is not valid YAML', 502, { cause: error });
+  }
+  if (!document || !Array.isArray(document.proxies) || document.proxies.length === 0) {
+    throw new SubscriptionError('Upstream subscription contains no proxies', 502);
+  }
+  const hasInvalidProxy = document.proxies.some((proxy) => (
+    !proxy
+    || typeof proxy !== 'object'
+    || Array.isArray(proxy)
+    || typeof proxy.type !== 'string'
+    || proxy.type.trim() === ''
+  ));
+  if (hasInvalidProxy) throw new SubscriptionError('Upstream subscription contains an invalid proxy', 502);
+  return document.proxies;
+}
+
+async function fetchSubscriptionDocument(url, options = {}) {
   const fetchImpl = options.fetchImpl || fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
@@ -94,27 +115,8 @@ async function fetchOne(url, options) {
     if (!response.ok) {
       throw new SubscriptionError(`Upstream subscription returned HTTP ${response.status}`, 502);
     }
-    const text = await readBoundedBody(response, maxBytes);
-    let document;
-    try {
-      document = YAML.parse(text);
-    } catch (error) {
-      throw new SubscriptionError('Upstream subscription is not valid YAML', 502, { cause: error });
-    }
-    if (!document || !Array.isArray(document.proxies) || document.proxies.length === 0) {
-      throw new SubscriptionError('Upstream subscription contains no proxies', 502);
-    }
-    const hasInvalidProxy = document.proxies.some((proxy) => (
-      !proxy
-      || typeof proxy !== 'object'
-      || Array.isArray(proxy)
-      || typeof proxy.type !== 'string'
-      || proxy.type.trim() === ''
-    ));
-    if (hasInvalidProxy) {
-      throw new SubscriptionError('Upstream subscription contains an invalid proxy', 502);
-    }
-    return document.proxies;
+    const content = await readBoundedBody(response, maxBytes);
+    return { content, proxies: parseSubscription(content) };
   } catch (error) {
     if (error instanceof SubscriptionError) throw error;
     if (error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
@@ -126,6 +128,10 @@ async function fetchOne(url, options) {
   }
 }
 
+async function fetchOne(url, options = {}) {
+  return (await fetchSubscriptionDocument(url, options)).proxies;
+}
+
 async function fetchSubscriptions(rawUrl, options = {}) {
   const urls = splitSubscriptionUrls(rawUrl);
   return Promise.all(urls.map((url) => fetchOne(url, options)));
@@ -135,6 +141,8 @@ module.exports = {
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_BYTES,
   SubscriptionError,
+  fetchSubscriptionDocument,
+  parseSubscription,
   fetchOne,
   splitSubscriptionUrls,
   fetchSubscriptions

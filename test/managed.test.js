@@ -37,7 +37,7 @@ test('shares raw source caches across subscriptions and restart, uses per-source
   assert.equal(f.calls.length, 2, 'shared source must not be fetched for each system subscription');
   assert.deepEqual(f.calls.map(c => c.agent), ['custom-agent', 'clash-verge/v2.4.5']);
   const cached = f.store.read().sources.find(row => row.id === f.one.id);
-  assert.equal(JSON.parse(await readFile(join(f.options.directory, cached.cache.file), 'utf8'))[0].name, 'US');
+  assert.equal(YAML.parse(await readFile(join(f.options.directory, cached.cache.file), 'utf8')).proxies[0].name, 'US');
   assert.doesNotMatch(JSON.stringify(f.service.list().sources), /secret|source-cache-/);
   f.tick(CACHE_MS - 1); await f.service.content(f.sub.key); assert.equal(f.calls.length, 2);
   f.tick(1); await f.service.content(f.sub.key); assert.equal(f.calls.length, 4);
@@ -54,7 +54,7 @@ test('managed URL with a pipe remains a single source', async t => {
   await f.service.content(sub.key); assert.equal(f.calls.length, 1); assert.equal(f.calls[0].url, source.url);
 });
 
-test('previews raw cached source nodes without fetching, including empty, expired and invalidated caches', async t => {
+test('previews complete cached source responses without fetching, including empty, expired and invalidated caches', async t => {
   const f = await fixture(t);
   const empty = await f.service.preview(f.one.id);
   assert.equal(empty.content, null);
@@ -75,15 +75,55 @@ test('previews raw cached source nodes without fetching, including empty, expire
   await assert.rejects(f.service.preview('missing'), { statusCode: 404 });
 });
 
+test('preserves full provider response including comments, formatting and non-proxy sections across restart', async t => {
+  const f = await fixture(t);
+  const content = '\uFEFF# original provider comment\r\ndns: {enable: true, nameserver: [1.1.1.1]}\r\nproxies:\r\n  - {name: US full, type: ss, server: full.example, port: 443}\r\nproxy-groups:\r\n  - {name: provider-select, type: select, proxies: [US full]}\r\nrules: ["DOMAIN,provider.example,DIRECT"]\r\nprovider-only: preserved\r\n';
+  let calls = 0;
+  const service = new Managed(f.store, { now: () => 100000, fetchImpl: async () => { calls++; return new Response(content); } });
+  await service.refresh(f.one.id);
+  assert.equal((await service.preview(f.one.id)).content, content);
+  assert.equal(calls, 1);
+  const record = f.store.read().sources.find(row => row.id === f.one.id);
+  assert.equal(await readFile(join(f.options.directory, record.cache.file), 'utf8'), content);
+  const restarted = new Managed(await Store.open(f.options), { fetchImpl: async () => { throw Error('preview must not fetch'); } });
+  assert.equal((await restarted.preview(f.one.id)).content, content);
+  const output = YAML.parse((await service.content(f.sub.key)).body);
+  assert.equal(output.proxies.length, 2);
+  assert.equal(output['provider-only'], undefined, 'provider settings must not replace the selected system template');
+});
+
+test('legacy node-only caches remain usable and preview requests an explicit update without fetching', async t => {
+  const f = await fixture(t);
+  const file = 'source-cache-legacy.json';
+  await writeFile(join(f.options.directory, file), JSON.stringify([{ name: 'US legacy', type: 'ss', server: 'legacy.example', port: 443 }]));
+  await f.store.update(state => {
+    const source = state.sources.find(row => row.id === f.one.id);
+    source.cache = { file, revision: source.revision }; source.lastSuccessAt = 100000;
+  });
+  const old = await f.service.preview(f.one.id);
+  assert.equal(old.content, null);
+  assert.equal(old.requiresUpdate, true);
+  assert.equal(old.proxyCount, 1);
+  const sub = await f.service.save('subscriptions', { name: 'legacy', sourceIds: [f.one.id], templateId: f.sub.templateId });
+  assert.equal(YAML.parse((await f.service.content(sub.key)).body).proxies[0].server, 'legacy.example');
+  assert.equal(f.calls.length, 0);
+  await f.service.refresh(f.one.id);
+  assert.equal((await f.service.preview(f.one.id)).requiresUpdate, false);
+  assert.ok((await f.service.preview(f.one.id)).content);
+  assert.equal(f.calls.length, 1);
+});
+
 test('failed source refresh keeps its data and timestamp while other sources update independently', async t => {
   const f = await fixture(t); await f.service.content(f.sub.key);
   const oldSuccess = sourceState(f, f.two.id).lastSuccessAt;
+  const oldPreview = (await f.service.preview(f.two.id)).content;
   f.fail(); f.generation(2); f.tick(CACHE_MS);
   const result = await f.service.content(f.sub.key);
   assert.equal(result.stale, true);
   assert.deepEqual(YAML.parse(result.body).proxies.map(p => p.server), ['node-2.example', 'node-1.example']);
   assert.equal(sourceState(f, f.two.id).lastSuccessAt, oldSuccess);
   assert.equal(sourceState(f, f.two.id).lastResult.ok, false);
+  assert.equal((await f.service.preview(f.two.id)).content, oldPreview);
   const missing = await f.service.save('sources', { name: '尚无缓存', url: 'https://source.test/two-missing' });
   const empty = await f.service.save('subscriptions', { name: '缺一个来源', sourceIds: [f.one.id, missing.id], templateId: f.sub.templateId });
   await assert.rejects(f.service.content(empty.key));
