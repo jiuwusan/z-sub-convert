@@ -561,7 +561,7 @@ td:last-child,th:last-child {
   color:#9aa79d;
   background:#fdfefd
 }
-.empty {
+.list-empty {
   text-align:center;
   padding:56px 25px 64px
 }
@@ -576,18 +576,18 @@ td:last-child,th:last-child {
   border-radius:12px;
   margin-bottom:20px
 }
-.empty h3 {
+.list-empty h3 {
   font-size:16px;
   font-weight:500;
   margin:0 0 12px
 }
-.empty p {
+.list-empty p {
   font-size:12px;
   color:#8c9a8f;
   line-height:1.8;
   margin-bottom:22px
 }
-.empty button {
+.list-empty button {
   font-size:12px
 }
 .page-footer {
@@ -951,10 +951,10 @@ dialog form {
   .dialog-fields textarea {
     min-height:240px
   }
-  .empty {
+  .list-empty {
     padding:40px 20px
   }
-  .empty p {
+  .list-empty p {
     font-size:11px
   }
   #editor-error {
