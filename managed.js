@@ -167,17 +167,17 @@ class Managed {
       await writeFile(join(this.store.directory, file), JSON.stringify(proxies), { encoding: 'utf8', mode: 0o600 });
       await this.store.update(state => {
         const record = find(state, 'sources', source.id);
-        if (record.revision !== source.revision) throw new AppError('配置已变更，请重新刷新', 409);
+        if (record.revision !== source.revision) throw new AppError('配置已变更，请重试更新', 409);
         previous = record.cache?.file;
         record.cache = { file, revision: source.revision };
         record.lastSuccessAt = this.now();
-        record.lastResult = { ok: true, message: '刷新成功', at: this.now() };
+        record.lastResult = { ok: true, message: '更新成功', at: this.now() };
       });
       if (previous) await this.discard(previous);
-      return { id: source.id, name: source.name, ok: true, message: '刷新成功' };
+      return { id: source.id, name: source.name, ok: true, message: '更新成功' };
     } catch (error) {
       if (file) await this.discard(file);
-      const message = error instanceof SubscriptionError || error instanceof AppError ? error.message : '刷新失败，请稍后重试';
+      const message = error instanceof SubscriptionError || error instanceof AppError ? error.message : '更新失败，请稍后重试';
       await this.store.update(state => {
         const record = state.sources.find(row => row.id === source.id);
         if (record?.revision === source.revision) record.lastResult = { ok: false, message, at: this.now() };
@@ -207,7 +207,18 @@ class Managed {
     try { await this.refresh(id); } catch (error) { failure = error; }
     ({ source, proxies } = await this.currentSource(id));
     if (proxies !== null) return { proxies, revision: source.revision, stale: Boolean(failure) || this.status(source) !== 'valid' };
-    throw failure || new AppError('来源缓存不可用，请重新刷新', 502);
+    throw failure || new AppError('来源缓存不可用，请重试更新', 502);
+  }
+
+  async preview(id) {
+    const { source, proxies } = await this.currentSource(id);
+    return {
+      name: source.name,
+      cacheStatus: proxies === null ? 'empty' : this.status(source),
+      lastSuccessAt: source.lastSuccessAt,
+      proxyCount: proxies?.length || 0,
+      content: proxies === null ? null : YAML.stringify({ proxies }, { lineWidth: 0 })
+    };
   }
 
   configuration(state, sub) {

@@ -104,3 +104,26 @@ test('rejects declared and streamed bodies above the configured size', async (t)
     );
   }
 });
+
+test('reports safe underlying network codes without exposing subscription URLs or certificate details', async () => {
+  const sensitive = 'https://private.example/secret-path?token=do-not-expose';
+  const cases = [
+    { error: new TypeError('fetch failed', { cause: Object.assign(new Error(sensitive), { code: 'UND_ERR_CONNECT_TIMEOUT' }) }), codes: ['UND_ERR_CONNECT_TIMEOUT'] },
+    { error: new TypeError('fetch failed', { cause: Object.assign(new Error(sensitive), { code: 'ENOTFOUND' }) }), codes: ['ENOTFOUND'] },
+    { error: new TypeError('fetch failed', { cause: Object.assign(new Error(sensitive), { code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' }) }), codes: ['UNABLE_TO_VERIFY_LEAF_SIGNATURE'] },
+    { error: new TypeError('fetch failed', { cause: new AggregateError([
+      Object.assign(new Error(sensitive), { code: 'ENETUNREACH' }),
+      Object.assign(new Error(sensitive), { code: 'ETIMEDOUT' })
+    ]) }), codes: ['ENETUNREACH', 'ETIMEDOUT'] },
+    { error: Object.assign(new Error(sensitive), { code: sensitive }), codes: [] }
+  ];
+  for (const { error, codes } of cases) {
+    await assert.rejects(fetchSubscriptions(sensitive, { fetchImpl: async () => { throw error; } }), actual => {
+      assert.equal(actual.statusCode, 502);
+      for (const code of codes) assert.ok(actual.message.includes(code), `Missing ${code} in public error`);
+      assert.doesNotMatch(actual.message, /private\.example|secret-path|do-not-expose/);
+      assert.equal(actual.cause, error);
+      return true;
+    });
+  }
+});

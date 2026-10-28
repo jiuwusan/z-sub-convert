@@ -4,6 +4,28 @@ const YAML = require('yaml');
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
+const SAFE_NETWORK_CODES = new Set([
+  'ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE',
+  'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET',
+  'CERT_HAS_EXPIRED', 'CERT_NOT_YET_VALID', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'SELF_SIGNED_CERT_IN_CHAIN', 'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'ERR_TLS_CERT_ALTNAME_INVALID'
+]);
+
+function networkErrorCodes(error) {
+  const pending = [error];
+  const seen = new Set();
+  const codes = new Set();
+  while (pending.length && seen.size < 16) {
+    const current = pending.shift();
+    if (!current || typeof current !== 'object' || seen.has(current)) continue;
+    seen.add(current);
+    if (SAFE_NETWORK_CODES.has(current.code)) codes.add(current.code);
+    if (current.cause) pending.push(current.cause);
+    if (Array.isArray(current.errors)) pending.push(...current.errors.slice(0, 8));
+  }
+  return [...codes];
+}
 
 class SubscriptionError extends Error {
   constructor(message, statusCode, options) {
@@ -98,7 +120,9 @@ async function fetchOne(url, options) {
     if (error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
       throw new SubscriptionError('Upstream subscription request timed out', 502, { cause: error });
     }
-    throw new SubscriptionError('Unable to fetch upstream subscription', 502, { cause: error });
+    const codes = networkErrorCodes(error);
+    const detail = codes.length ? ` (${codes.join(', ')})` : '';
+    throw new SubscriptionError(`Unable to fetch upstream subscription${detail}`, 502, { cause: error });
   }
 }
 

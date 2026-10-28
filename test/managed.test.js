@@ -54,6 +54,27 @@ test('managed URL with a pipe remains a single source', async t => {
   await f.service.content(sub.key); assert.equal(f.calls.length, 1); assert.equal(f.calls[0].url, source.url);
 });
 
+test('previews raw cached source nodes without fetching, including empty, expired and invalidated caches', async t => {
+  const f = await fixture(t);
+  const empty = await f.service.preview(f.one.id);
+  assert.equal(empty.content, null);
+  assert.equal(empty.proxyCount, 0);
+  assert.equal(f.calls.length, 0);
+  await f.service.refresh(f.one.id);
+  const cached = await f.service.preview(f.one.id);
+  assert.equal(cached.name, f.one.name);
+  assert.equal(cached.cacheStatus, 'valid');
+  assert.equal(cached.proxyCount, 1);
+  assert.equal(YAML.parse(cached.content).proxies[0].name, 'US');
+  assert.doesNotMatch(JSON.stringify(cached), /secret|source-cache-/);
+  f.tick(CACHE_MS);
+  assert.equal((await f.service.preview(f.one.id)).cacheStatus, 'expired');
+  await f.service.save('sources', { ...f.one, userAgent: 'changed-agent' }, f.one.id);
+  assert.equal((await f.service.preview(f.one.id)).cacheStatus, 'invalidated');
+  assert.equal(f.calls.length, 1, 'opening a preview must never fetch upstream');
+  await assert.rejects(f.service.preview('missing'), { statusCode: 404 });
+});
+
 test('failed source refresh keeps its data and timestamp while other sources update independently', async t => {
   const f = await fixture(t); await f.service.content(f.sub.key);
   const oldSuccess = sourceState(f, f.two.id).lastSuccessAt;

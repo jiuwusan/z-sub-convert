@@ -47,6 +47,9 @@ test('initializes without key, protects management with auth/CSRF and supports c
   response = await f.request('/api/sources', 'POST', { name: '来源', url: 'https://test.test/?token=secret' });
   assert.equal(response.status, 201);
   const source = await response.json();
+  assert.equal((await fetch(`${f.base}/api/sources/${source.id}/preview`)).status, 401);
+  assert.equal((await (await f.request(`/api/sources/${source.id}/preview`)).json()).content, null);
+  assert.equal(f.upstreamCalls(), 0);
   const state = await (await f.request('/api/state')).json();
   assert.doesNotMatch(JSON.stringify(state), /secret/);
   assert.doesNotMatch(JSON.stringify(state), /hash|salt/);
@@ -58,6 +61,13 @@ test('initializes without key, protects management with auth/CSRF and supports c
   response = await fetch(`${f.base}/sub?key=${sub.key}`);
   assert.equal(response.status, 200);
   assert.match(await response.text(), /美国/);
+  const preview = await f.request(`/api/sources/${source.id}/preview`);
+  assert.equal(preview.status, 200);
+  assert.equal(preview.headers.get('cache-control'), 'no-store');
+  const previewData = await preview.json();
+  assert.equal(previewData.proxyCount, 1);
+  assert.match(previewData.content, /US test/);
+  assert.equal(f.upstreamCalls(), 1);
   assert.equal((await f.request(`/api/sources/${source.id}/refresh`, 'POST', {})).status, 200);
   assert.equal((await (await f.request('/api/sources/refresh-all', 'POST', {})).json()).results.length, 1);
   assert.equal((await f.request(`/api/subscriptions/${sub.id}/refresh`, 'POST', {})).status, 404);

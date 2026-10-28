@@ -757,6 +757,31 @@ dialog form {
 #copy-dialog,#results-dialog {
   max-width:520px
 }
+#preview-dialog {
+  width:min(960px,calc(100% - 32px));
+}
+#preview-dialog[open] {
+  display:flex;
+  flex-direction:column;
+}
+#preview-dialog .dialog-heading,#preview-dialog .dialog-footer {
+  flex-shrink:0;
+}
+#preview-dialog .dialog-fields {
+  gap:12px;
+}
+.preview-heading {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  overflow-wrap:anywhere;
+}
+#preview-content {
+  height:50vh;
+  min-height:240px;
+  flex-shrink:0;
+  background:#f8faf8;
+}
 @media(min-width:1500px) {
   .content {
     padding-top:48px

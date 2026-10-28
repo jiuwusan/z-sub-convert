@@ -100,10 +100,13 @@ function createAdminHandler({ managed, auth, store }) {
       json(200, { results: await managed.refreshAll() });
       return;
     }
-    const match = /^\/api\/(sources|templates|subscriptions)(?:\/([a-zA-Z0-9-]+))?(\/refresh)?$/.exec(path);
+    const match = /^\/api\/(sources|templates|subscriptions)(?:\/([a-zA-Z0-9-]+))?(\/(?:refresh|preview))?$/.exec(path);
     if (!match) throw new AppError('接口不存在', 404);
     const [, resource, id, action] = match;
-    if (action) {
+    if (action === '/preview') {
+      if (resource !== 'sources' || !id || method !== 'GET') throw new AppError('接口不存在', 404);
+      json(200, await managed.preview(id));
+    } else if (action) {
       if (resource !== 'sources' || !id || method !== 'POST') throw new AppError('接口不存在', 404);
       json(200, await managed.refresh(id));
     } else if (id && method === 'GET') json(200, managed.get(resource, id));

@@ -4,10 +4,10 @@ const $ = selector => document.querySelector(selector);
 const state = { tab: 'subscriptions', data: { sources: [], templates: [], subscriptions: [] }, csrf: '', mode: 'login', initialized: false, editing: null, refreshing: new Set(), allBusy: false };
 const labels = {
   subscriptions: { title: '系统订阅', list: '全部订阅', add: '新增订阅', description: '使用第三方来源缓存和所选模板生成专属订阅链接。', heads: ['订阅名称', '第三方来源 / 模板', '操作'] },
-  sources: { title: '第三方订阅源', list: '全部来源', add: '新增来源', description: '维护并刷新第三方来源，缓存结果供所有关联订阅复用。', heads: ['来源名称', '订阅链接摘要 / User-Agent', '关联订阅', '缓存状态', '最近刷新成功', '最近刷新结果', '操作'] },
+  sources: { title: '第三方订阅源', list: '全部来源', add: '新增来源', description: '维护并更新第三方来源，缓存结果供所有关联订阅复用。', heads: ['来源名称', '订阅链接摘要 / User-Agent', '关联订阅', '缓存状态', '最近更新成功', '最近更新结果', '操作'] },
   templates: { title: '订阅模板', list: '全部模板', add: '新增模板', description: '维护转换模板，为每份系统订阅选择合适的配置。', heads: ['模板名称', '关联订阅', '操作'] }
 };
-const cacheLabels = { empty: '无缓存', valid: '缓存有效', expired: '已过期', invalidated: '待刷新' };
+const cacheLabels = { empty: '无缓存', valid: '缓存有效', expired: '已过期', invalidated: '待更新' };
 let toastTimer;
 
 function node(tag, className, text) {
@@ -97,7 +97,11 @@ function action(container, label, callback, className = '') {
 }
 
 function formatTime(value) {
-  return value === null || value === undefined ? '尚未刷新' : new Date(value).toLocaleString('zh-CN', { hour12: false });
+  return value === null || value === undefined ? '尚未更新' : new Date(value).toLocaleString('zh-CN', { hour12: false });
+}
+
+function cacheMessage(message) {
+  return message.replace(/^刷新(?=成功|失败)/, '更新');
 }
 
 function render() {
@@ -110,7 +114,7 @@ function render() {
   $('#add-record').textContent = `＋ ${config.add}`;
   $('#refresh-all').hidden = tab !== 'sources';
   $('#refresh-all').disabled = state.allBusy || !data.sources.length;
-  $('#refresh-all').textContent = state.allBusy ? '正在全部刷新…' : '全部刷新';
+  $('#refresh-all').textContent = state.allBusy ? '正在全部更新…' : '全部更新';
   for (const button of document.querySelectorAll('[data-tab]')) {
     button.classList.toggle('active', button.dataset.tab === tab);
     button.setAttribute('aria-current', button.dataset.tab === tab ? 'page' : 'false');
@@ -127,8 +131,8 @@ function render() {
   $('#table-body').replaceChildren();
   $('#empty').hidden = data[tab].length > 0;
   $('#total-label').textContent = `共 ${data[tab].length} 条记录`;
-  $('#cache-hint').textContent = tab === 'sources' ? '来源缓存有效期 23 小时 · 支持手动刷新' : tab === 'templates' ? '模板修改后重新生成结果，无需刷新来源' : '关联订阅共享来源缓存 · 按当前模板生成';
-  $('#list-hint').textContent = tab === 'templates' ? '模板在保存时校验，修改后自动应用到关联订阅' : tab === 'sources' ? '来源独立缓存，刷新成功后所有关联订阅使用新数据' : '需要更新第三方数据时，请到来源列表刷新';
+  $('#cache-hint').textContent = tab === 'sources' ? '来源缓存有效期 23 小时 · 支持手动更新' : tab === 'templates' ? '模板修改后重新生成结果，无需更新来源' : '关联订阅共享来源缓存 · 按当前模板生成';
+  $('#list-hint').textContent = tab === 'templates' ? '模板在保存时校验，修改后自动应用到关联订阅' : tab === 'sources' ? '来源独立缓存，更新成功后所有关联订阅使用新数据' : '需要更新第三方数据时，请到来源列表更新';
   const needsSource = tab === 'subscriptions' && !data.sources.length;
   $('#empty-title').textContent = tab === 'subscriptions' ? '创建你的第一份订阅' : tab === 'sources' ? '添加第一个第三方来源' : '创建你的订阅模板';
   $('#empty-description').textContent = tab === 'subscriptions' ? '选择一个或多个第三方来源，再搭配模板生成订阅。' : tab === 'sources' ? '保存来源名称、订阅链接和 User-Agent，供系统订阅使用。' : '粘贴 YAML 或上传模板文件，保存后即可关联到订阅。';
@@ -150,10 +154,10 @@ function render() {
       cell(row, summary);
       cell(row, `${data.subscriptions.filter(sub => sub.sourceIds.includes(record.id)).length} 份订阅`);
       const refreshing = state.refreshing.has(record.id) || record.refreshing || state.allBusy;
-      cell(row, node('span', `badge ${refreshing ? 'refreshing' : record.cacheStatus}`, refreshing ? '刷新中…' : cacheLabels[record.cacheStatus]));
+      cell(row, node('span', `badge ${refreshing ? 'refreshing' : record.cacheStatus}`, refreshing ? '更新中…' : cacheLabels[record.cacheStatus]));
       cell(row, formatTime(record.lastSuccessAt));
       const result = record.lastResult;
-      const resultEl = node('span', result ? result.ok ? 'result-ok' : 'result-error' : 'muted', result ? result.message : '—');
+      const resultEl = node('span', result ? result.ok ? 'result-ok' : 'result-error' : 'muted', result ? cacheMessage(result.message) : '—');
       if (result) resultEl.title = formatTime(result.at);
       cell(row, resultEl);
     } else cell(row, `${data.subscriptions.filter(sub => sub.templateId === record.id).length} 份订阅`);
@@ -161,7 +165,8 @@ function render() {
     if (tab === 'subscriptions') {
       action(actions, '复制', () => copyLink(record));
     } else if (tab === 'sources') {
-      const refresh = action(actions, '刷新', () => refreshOne(record));
+      action(actions, '预览', () => previewSource(record));
+      const refresh = action(actions, '更新', () => refreshOne(record));
       refresh.disabled = state.refreshing.has(record.id) || state.allBusy || record.refreshing;
     }
     action(actions, '编辑', () => edit(tab, record.id));
@@ -243,7 +248,7 @@ async function edit(resource, id) {
     for (const record of state.data.templates) { const option = node('option', '', record.name); option.value = record.id; select.append(option); }
     if (record.templateId) select.value = record.templateId;
     template.append(select);
-    fields.append(group, template, node('p', 'field-help', '按来源列表顺序合并缓存数据，再应用所选模板。保存不拉取，来源无缓存或已过期时访问才更新；也可到来源列表手动刷新。订阅链接保持不变。'));
+    fields.append(group, template, node('p', 'field-help', '按来源列表顺序合并缓存数据，再应用所选模板。保存不拉取，来源无缓存或已过期时访问才更新；也可到来源列表手动更新。订阅链接保持不变。'));
   }
   $('#editor-error').hidden = true;
   $('#editor').showModal();
@@ -261,9 +266,28 @@ async function copyLink(record) {
 async function refreshOne(record) {
   state.refreshing.add(record.id);
   render();
-  try { await api(`/sources/${record.id}/refresh`, 'POST', {}); toast(`来源“${record.name}”刷新成功`); }
+  try { await api(`/sources/${record.id}/refresh`, 'POST', {}); toast(`来源“${record.name}”更新成功`); }
   catch (error) { toast(error.message); }
   finally { state.refreshing.delete(record.id); await load(); }
+}
+
+async function previewSource(record) {
+  const result = await api(`/sources/${record.id}/preview`);
+  $('#preview-name').textContent = result.name;
+  $('#preview-status').className = `badge ${result.cacheStatus}`;
+  $('#preview-status').textContent = cacheLabels[result.cacheStatus];
+  $('#preview-meta').textContent = `${result.proxyCount} 个节点 · 最近更新成功：${formatTime(result.lastSuccessAt)}`;
+  const notes = {
+    empty: '暂无可用缓存，请先在来源列表点击“更新”。',
+    valid: '展示最近一次成功缓存的节点结果，未套用系统订阅模板。',
+    expired: '缓存已过期，以下为上次成功保留的结果；更新来源后可查看最新内容。',
+    invalidated: '来源配置已变更，以下为变更前保留的缓存；更新来源后可查看最新内容。'
+  };
+  $('#preview-note').textContent = notes[result.cacheStatus];
+  $('#preview-content').value = result.content || '';
+  $('#preview-content').hidden = result.content === null;
+  $('#copy-preview').disabled = result.content === null;
+  $('#preview-dialog').showModal();
 }
 
 $('#auth-form').addEventListener('submit', async event => {
@@ -300,7 +324,7 @@ $('#empty-action').addEventListener('click', () => {
 });
 $('#reload').addEventListener('click', async () => {
   $('#reload').disabled = true;
-  try { await load(); toast('列表已更新'); } catch (error) { toast(error.message); }
+  try { await load(); toast('列表已刷新'); } catch (error) { toast(error.message); }
   finally { $('#reload').disabled = false; }
 });
 $('#refresh-all').addEventListener('click', async () => {
@@ -311,7 +335,7 @@ $('#refresh-all').addEventListener('click', async () => {
     $('#results-summary').textContent = `共 ${results.length} 个来源，成功 ${succeeded} 个，失败 ${results.length - succeeded} 个。`;
     $('#results-list').replaceChildren(...results.map(result => {
       const item = node('li', result.ok ? '' : 'failed');
-      item.append(node('strong', '', result.name), node('span', '', result.message)); return item;
+      item.append(node('strong', '', result.name), node('span', '', cacheMessage(result.message))); return item;
     }));
     $('#results-dialog').showModal();
   } catch (error) { toast(error.message); }
@@ -338,6 +362,13 @@ $('#editor-form').addEventListener('submit', async event => {
 for (const id of ['close-editor', 'cancel-editor']) $(`#${id}`).addEventListener('click', () => $('#editor').close());
 $('#close-copy').addEventListener('click', () => $('#copy-dialog').close());
 $('#close-results').addEventListener('click', () => $('#results-dialog').close());
+for (const id of ['close-preview', 'done-preview']) $(`#${id}`).addEventListener('click', () => $('#preview-dialog').close());
+$('#preview-dialog').addEventListener('close', () => { $('#preview-content').value = ''; });
+$('#copy-preview').addEventListener('click', async () => {
+  const content = $('#preview-content');
+  try { await navigator.clipboard.writeText(content.value); toast('预览内容已复制'); }
+  catch { content.focus(); content.select(); toast('内容已选中，可手动复制'); }
+});
 
 async function initialize() {
   try {
