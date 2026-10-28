@@ -16,6 +16,7 @@ const { Store } = require('./store');
 const { Auth, AppError } = require('./auth');
 const { Managed } = require('./managed');
 const { createAdminHandler } = require('./admin-api');
+const { sendDownload } = require('./download');
 
 class TemplateError extends Error {
   constructor(message, options) {
@@ -71,7 +72,7 @@ function createApp(options = {}) {
   const ready = dataDir ? Store.open({ directory: dataDir, templatePath }).then(store => {
     const auth = new Auth(store, { resetKey: options.resetKey, now });
     const managed = new Managed(store, { ...options, now, timeoutMs, maxBytes });
-    return { store, auth, managed, admin: createAdminHandler({ store, auth, managed }) };
+    return { store, auth, managed, admin: createAdminHandler({ store, auth, managed, now }) };
   }) : Promise.resolve(null);
   ready.catch(() => {}); // Request/startup paths report initialization failures.
   const assets = {
@@ -133,17 +134,13 @@ function createApp(options = {}) {
         if (!context) throw new AppError('订阅不存在', 404);
         const key = requestUrl.searchParams.get('key');
         if (headOnly) {
-          if (!context.store.read().subscriptions.some(row => row.key === key)) throw new AppError('订阅不存在', 404);
-          send(response, 200, { 'content-type': 'text/yaml; charset=utf-8', 'cache-control': 'no-store' }, '', true);
+          const sub = context.store.read().subscriptions.find(row => row.key === key);
+          if (!sub) throw new AppError('订阅不存在', 404);
+          sendDownload(response, { name: sub.name, content: '', timestamp: now(), headOnly: true });
           return;
         }
         const result = await context.managed.content(key);
-        send(response, 200, {
-          'content-type': 'text/yaml; charset=utf-8',
-          'cache-control': 'no-store',
-          'x-subscription-cache': result.stale ? 'stale' : 'fresh',
-          'content-disposition': `attachment; filename="config-clash-meta-${now()}.yaml"`
-        }, result.body, headOnly);
+        sendDownload(response, { name: result.name, content: result.body, timestamp: now(), stale: result.stale });
         return;
       }
       const proxyLists = await fetchSubscriptions(requestUrl.searchParams.get('url'), {

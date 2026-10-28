@@ -1,6 +1,7 @@
 'use strict';
 
 const { AppError, equal, SESSION_MS } = require('./auth');
+const { sendDownload } = require('./download');
 const MAX_BODY = 2 * 1024 * 1024;
 
 async function readJson(request) {
@@ -36,7 +37,7 @@ function checkOrigin(request) {
   throw new AppError('请求来源不允许', 403);
 }
 
-function createAdminHandler({ managed, auth, store }) {
+function createAdminHandler({ managed, auth, store, now = Date.now }) {
   const attempts = new Map();
   function rateLimit(request, path) {
     const now = Date.now();
@@ -100,10 +101,22 @@ function createAdminHandler({ managed, auth, store }) {
       json(200, { results: await managed.refreshAll() });
       return;
     }
-    const match = /^\/api\/(sources|templates|subscriptions)(?:\/([a-zA-Z0-9-]+))?(\/(?:refresh|preview))?$/.exec(path);
+    const match = /^\/api\/(sources|templates|subscriptions)(?:\/([a-zA-Z0-9-]+))?(\/(?:refresh|preview|download))?$/.exec(path);
     if (!match) throw new AppError('接口不存在', 404);
     const [, resource, id, action] = match;
-    if (action === '/preview') {
+    if (action === '/download') {
+      if (!id || !['GET', 'HEAD'].includes(method)) throw new AppError('接口不存在', 404);
+      if (resource === 'sources') {
+        const preview = await managed.preview(id);
+        if (preview.content === null) throw new AppError(preview.requiresUpdate
+          ? '旧缓存仅包含节点，请先更新来源后下载完整订阅结果' : '暂无可用缓存，请先更新来源后下载', 409);
+        sendDownload(response, { name: preview.name, content: preview.content, timestamp: now(), headOnly: method === 'HEAD' });
+      } else if (resource === 'subscriptions') {
+        const sub = managed.get(resource, id);
+        const result = method === 'HEAD' ? { name: sub.name, body: '' } : await managed.content(sub.key);
+        sendDownload(response, { name: result.name, content: result.body, timestamp: now(), headOnly: method === 'HEAD', stale: result.stale });
+      } else throw new AppError('接口不存在', 404);
+    } else if (action === '/preview') {
       if (resource !== 'sources' || !id || method !== 'GET') throw new AppError('接口不存在', 404);
       json(200, await managed.preview(id));
     } else if (action) {

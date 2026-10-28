@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { mkdtemp, rm } = require('node:fs/promises');
+const { mkdtemp, rm, writeFile } = require('node:fs/promises');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 const { once } = require('node:events');
@@ -13,8 +13,8 @@ async function fixture(t, dataDir) {
     t.after(() => rm(dataDir, { recursive: true, force: true }));
   }
   let upstreamCalls = 0;
-  const upstreamBody = '# provider result\r\ndns: {enable: true}\r\nproxies:\r\n  - name: US test\r\n    type: ss\r\n    server: test.example\r\n    port: 443\r\nproxy-groups: []\r\nrules: ["MATCH,DIRECT"]\r\n';
-  const app = createApp({ dataDir, resetKey: 'this-boot-key', logger: { error() {} }, fetchImpl: async () => { upstreamCalls++; return new Response(upstreamBody); } });
+  const upstreamBody = '\uFEFF# provider result\r\ndns: {enable: true}\r\nproxies:\r\n  - name: US test\r\n    type: ss\r\n    server: test.example\r\n    port: 443\r\nproxy-groups: []\r\nrules: ["MATCH,DIRECT"]\r\n';
+  const app = createApp({ dataDir, now: () => 1793155200123, resetKey: 'this-boot-key', logger: { error() {} }, fetchImpl: async () => { upstreamCalls++; return new Response(upstreamBody); } });
   app.listen(0, '127.0.0.1');
   await once(app, 'listening');
   t.after(() => new Promise(resolve => { app.close(resolve); app.closeAllConnections(); }));
@@ -95,4 +95,56 @@ test('rejects invalid JSON and oversized requests and throttles login attempts',
   for (let i = 0; i < 10; i++) await f.request('/api/login', 'POST', { username: 'admin', password: 'bad' });
   assert.equal((await f.request('/api/login', 'POST', { username: 'admin', password: 'bad' })).status, 429);
   assert.equal((await fetch(f.base + '/sub?key=missing')).status, 404);
+});
+
+test('downloads full source caches and generated subscriptions with name-timestamp filenames', async t => {
+  const f = await fixture(t);
+  await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' });
+  await f.login();
+  const source = await (await f.request('/api/sources', 'POST', { name: '第三方来源', url: 'https://provider.example/sub' })).json();
+  const sourcePath = `/api/sources/${source.id}/download`;
+  assert.equal((await fetch(f.base + sourcePath)).status, 401);
+  const empty = await f.request(sourcePath);
+  assert.equal(empty.status, 409);
+  assert.match((await empty.json()).error, /更新/);
+  assert.equal(f.upstreamCalls(), 0);
+  await f.request(`/api/sources/${source.id}/refresh`, 'POST', {});
+  const original = await f.request(sourcePath);
+  assert.equal(original.status, 200);
+  assert.equal(original.headers.get('cache-control'), 'no-store');
+  assert.match(original.headers.get('content-type'), /yaml/);
+  const sourceFilename = decodeURIComponent(original.headers.get('content-disposition').split("filename*=UTF-8''")[1]);
+  assert.equal(sourceFilename, '第三方来源-1793155200123.yaml');
+  assert.deepEqual(Buffer.from(await original.arrayBuffer()), Buffer.from(f.upstreamBody));
+  const state = await (await f.request('/api/state')).json();
+  const sub = await (await f.request('/api/subscriptions', 'POST', { name: '系统订阅', sourceIds: [source.id], templateId: state.templates[0].id })).json();
+  const subPath = `/api/subscriptions/${sub.id}/download`;
+  assert.equal((await fetch(f.base + subPath)).status, 401);
+  const generated = await f.request(subPath);
+  assert.equal(generated.status, 200);
+  assert.equal(decodeURIComponent(generated.headers.get('content-disposition').split("filename*=UTF-8''")[1]), '系统订阅-1793155200123.yaml');
+  assert.match(await generated.text(), /美国/);
+  const publicSub = await fetch(`${f.base}/sub?key=${sub.key}`);
+  assert.equal(decodeURIComponent(publicSub.headers.get('content-disposition').split("filename*=UTF-8''")[1]), '系统订阅-1793155200123.yaml');
+  assert.equal(f.upstreamCalls(), 1);
+  const untouched = await (await f.request('/api/sources', 'POST', { name: '未更新来源', url: 'https://provider.example/unfetched' })).json();
+  const lazy = await (await f.request('/api/subscriptions', 'POST', { name: '尚未访问', sourceIds: [untouched.id], templateId: state.templates[0].id })).json();
+  for (const path of [sourcePath, subPath, `/api/subscriptions/${lazy.id}/download`, `/sub?key=${lazy.key}`]) {
+    const result = await f.request(path, 'HEAD');
+    assert.equal(result.status, 200);
+    assert.equal(await result.text(), '');
+    assert.match(result.headers.get('content-disposition'), /attachment/);
+  }
+  assert.equal(f.upstreamCalls(), 1);
+  const context = await f.app.ready;
+  const legacyFile = 'source-cache-legacy.json';
+  await writeFile(join(f.dataDir, legacyFile), JSON.stringify([{ name: 'US old', type: 'ss', server: 'old.example', port: 443 }]));
+  await context.store.update(data => {
+    const record = data.sources.find(row => row.id === untouched.id);
+    record.cache = { file: legacyFile, revision: record.revision }; record.lastSuccessAt = 1793155200123;
+  });
+  const legacyDownload = await f.request(`/api/sources/${untouched.id}/download`);
+  assert.equal(legacyDownload.status, 409);
+  assert.match((await legacyDownload.json()).error, /旧缓存/);
+  assert.equal(f.upstreamCalls(), 1);
 });

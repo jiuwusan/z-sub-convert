@@ -1,7 +1,7 @@
 'use strict';
 
 const $ = selector => document.querySelector(selector);
-const state = { tab: 'subscriptions', data: { sources: [], templates: [], subscriptions: [] }, csrf: '', mode: 'login', initialized: false, authenticated: false, ready: false, route: '', returnTo: 'subscriptions', navigation: 0, editing: null, previewContent: '', refreshing: new Set(), allBusy: false };
+const state = { tab: 'subscriptions', data: { sources: [], templates: [], subscriptions: [] }, csrf: '', mode: 'login', initialized: false, authenticated: false, ready: false, route: '', returnTo: 'subscriptions', navigation: 0, editing: null, previewContent: '', previewSourceId: null, refreshing: new Set(), allBusy: false };
 const labels = {
   subscriptions: { title: '系统订阅', list: '全部订阅', add: '新增订阅', description: '使用第三方来源缓存和所选模板生成专属订阅链接。', heads: ['订阅名称', '第三方来源 / 模板', '操作'] },
   sources: { title: '第三方订阅源', list: '全部来源', add: '新增来源', description: '维护并更新第三方来源，缓存结果供所有关联订阅复用。', heads: ['来源名称', '订阅链接摘要 / User-Agent', '关联订阅', '缓存状态', '最近更新成功', '最近更新结果', '操作'] },
@@ -24,19 +24,24 @@ function toast(message) {
   toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 4500);
 }
 
-async function api(path, method = 'GET', body) {
+async function requestApi(path, method = 'GET', body) {
   const response = await fetch(`/api${path}`, {
     method,
     headers: { ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...(state.csrf ? { 'x-csrf-token': state.csrf } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body)
   });
-  let data;
-  try { data = await response.json(); } catch { throw Error('服务返回异常，请稍后重试'); }
   if (!response.ok) {
+    let data;
+    try { data = await response.json(); } catch { throw Error('服务返回异常，请稍后重试'); }
     if (response.status === 401 && !['/login', '/setup', '/reset'].includes(path)) { $('#editor').close(); showAuth('login'); }
     throw Error(data.error || '操作失败');
   }
-  return data;
+  return response;
+}
+
+async function api(path, method = 'GET', body) {
+  const response = await requestApi(path, method, body);
+  try { return await response.json(); } catch { throw Error('服务返回异常，请稍后重试'); }
 }
 
 function showAuth(mode) {
@@ -199,8 +204,10 @@ function render() {
     const actions = node('div', 'row-actions');
     if (tab === 'subscriptions') {
       action(actions, '复制', () => copyLink(record));
+      action(actions, '下载', () => downloadRecord(tab, record.id));
     } else if (tab === 'sources') {
       action(actions, '预览', () => previewSource(record));
+      action(actions, '下载', () => downloadRecord(tab, record.id));
       const refresh = action(actions, '更新', () => refreshOne(record));
       refresh.disabled = state.refreshing.has(record.id) || state.allBusy || record.refreshing;
     }
@@ -314,6 +321,24 @@ async function refreshOne(record) {
   finally { state.refreshing.delete(record.id); await load(); }
 }
 
+async function downloadRecord(resource, id) {
+  const session = state.csrf;
+  const response = await requestApi(`/${resource}/${id}/download`);
+  const blob = await response.blob();
+  if (!state.authenticated || session !== state.csrf) return;
+  const header = response.headers.get('content-disposition') || '';
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header)?.[1];
+  const filename = encoded ? decodeURIComponent(encoded) : `subscription-${Date.now()}.yaml`;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 async function previewSource(record) {
   const navigation = state.navigation;
   const result = await api(`/sources/${record.id}/preview`);
@@ -332,9 +357,11 @@ async function previewSource(record) {
     ? '当前旧版缓存仅包含代理节点，请点击来源“更新”获取完整第三方订阅结果。'
     : notes[result.cacheStatus];
   state.previewContent = result.content || '';
+  state.previewSourceId = record.id;
   $('#preview-content').value = state.previewContent;
   $('#preview-content').hidden = result.content === null;
   $('#copy-preview').disabled = result.content === null;
+  $('#download-preview').disabled = result.content === null;
   $('#preview-dialog').showModal();
 }
 
@@ -416,7 +443,13 @@ for (const id of ['close-editor', 'cancel-editor']) $(`#${id}`).addEventListener
 $('#close-copy').addEventListener('click', () => $('#copy-dialog').close());
 $('#close-results').addEventListener('click', () => $('#results-dialog').close());
 for (const id of ['close-preview', 'done-preview']) $(`#${id}`).addEventListener('click', () => $('#preview-dialog').close());
-$('#preview-dialog').addEventListener('close', () => { state.previewContent = ''; $('#preview-content').value = ''; });
+$('#preview-dialog').addEventListener('close', () => { state.previewContent = ''; state.previewSourceId = null; $('#preview-content').value = ''; });
+$('#download-preview').addEventListener('click', async () => {
+  $('#download-preview').disabled = true;
+  try { await downloadRecord('sources', state.previewSourceId); }
+  catch (error) { toast(error.message); }
+  finally { $('#download-preview').disabled = !state.previewContent; }
+});
 $('#copy-preview').addEventListener('click', async () => {
   const navigation = state.navigation;
   const original = state.previewContent;

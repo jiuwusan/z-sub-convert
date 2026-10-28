@@ -250,7 +250,7 @@ class Managed {
       if (sources.some((result, index) => result.revision !== find(snapshot, 'sources', sub.sourceIds[index]).revision)) continue;
       const template = YAML.parse(find(latest, 'templates', current.templateId).content);
       const body = YAML.stringify(transformConfig(template, sources.map(result => result.proxies)), { lineWidth: 0 });
-      return { body, stale: sources.some(result => result.stale) };
+      return { name: current.name, body, stale: sources.some(result => result.stale) };
     }
     throw new AppError('配置已变更，请重试', 409);
   }
