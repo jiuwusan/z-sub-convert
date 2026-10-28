@@ -1,7 +1,7 @@
 'use strict';
 
 const $ = selector => document.querySelector(selector);
-const state = { tab: 'subscriptions', data: { sources: [], templates: [], subscriptions: [] }, csrf: '', mode: 'login', initialized: false, editing: null, refreshing: new Set(), allBusy: false };
+const state = { tab: 'subscriptions', data: { sources: [], templates: [], subscriptions: [] }, csrf: '', mode: 'login', initialized: false, authenticated: false, ready: false, route: '', returnTo: 'subscriptions', navigation: 0, editing: null, refreshing: new Set(), allBusy: false };
 const labels = {
   subscriptions: { title: '系统订阅', list: '全部订阅', add: '新增订阅', description: '使用第三方来源缓存和所选模板生成专属订阅链接。', heads: ['订阅名称', '第三方来源 / 模板', '操作'] },
   sources: { title: '第三方订阅源', list: '全部来源', add: '新增来源', description: '维护并更新第三方来源，缓存结果供所有关联订阅复用。', heads: ['来源名称', '订阅链接摘要 / User-Agent', '关联订阅', '缓存状态', '最近更新成功', '最近更新结果', '操作'] },
@@ -40,6 +40,39 @@ async function api(path, method = 'GET', body) {
 }
 
 function showAuth(mode) {
+  state.authenticated = false;
+  state.csrf = '';
+  state.ready = true;
+  navigate(mode, true);
+}
+
+function navigate(name, replace = false) {
+  const hash = SubConvertRoutes.hashFor(name, state.returnTo);
+  if (replace) history.replaceState(null, '', hash);
+  else if (location.hash !== hash) location.hash = hash;
+  applyRoute();
+}
+
+function applyRoute() {
+  if (!state.ready) return;
+  const route = SubConvertRoutes.resolveRoute(location.hash, state);
+  if (location.hash !== route.hash) history.replaceState(null, '', route.hash);
+  state.returnTo = route.returnTo;
+  if (state.route === route.name) return;
+  state.route = route.name;
+  state.navigation += 1;
+  for (const dialog of document.querySelectorAll('dialog[open]')) dialog.close();
+  if (Object.hasOwn(labels, route.name)) {
+    state.tab = route.name;
+    $('#auth-view').hidden = true;
+    $('#loading').hidden = true;
+    $('#app').hidden = false;
+    document.title = `${labels[route.name].title} · Sub Convert`;
+    render();
+  } else renderAuth(route.name);
+}
+
+function renderAuth(mode) {
   state.mode = mode;
   state.csrf = '';
   $('#loading').hidden = true;
@@ -47,6 +80,7 @@ function showAuth(mode) {
   $('#auth-view').hidden = false;
   const setup = mode === 'setup';
   const reset = mode === 'reset';
+  document.title = `${setup ? '初始化账号' : reset ? '重置账号' : '登录'} · Sub Convert`;
   $('#auth-title').textContent = setup ? '创建管理员账号' : reset ? '重置管理员账号' : '欢迎回来';
   $('#auth-description').textContent = setup ? '首次使用，设置用户名和密码即可开始。' : reset ? '使用当前容器启动日志中的 key 重置账号。' : '登录以管理你的订阅。';
   $('#auth-submit').textContent = setup ? '创建账号并登录' : reset ? '重置账号' : '登录';
@@ -62,12 +96,13 @@ function showAuth(mode) {
 }
 
 async function showApp(session) {
+  state.ready = false;
   state.csrf = session.csrf;
   $('#account-name').textContent = session.username;
-  await load();
-  $('#auth-view').hidden = true;
-  $('#loading').hidden = true;
-  $('#app').hidden = false;
+  try { await load(); }
+  finally { state.ready = true; }
+  state.authenticated = true;
+  applyRoute();
 }
 
 async function load() {
@@ -195,7 +230,10 @@ function field(labelText, name, value = '', options = {}) {
 }
 
 async function edit(resource, id) {
+  const navigation = state.navigation;
   const record = id ? await api(`/${resource}/${id}`) : {};
+  if (navigation !== state.navigation || !state.authenticated) return;
+  $('#editor').classList.toggle('template-editor', resource === 'templates');
   state.editing = { resource, id };
   $('#editor-title').textContent = id ? `编辑${labels[resource].title === '系统订阅' ? '订阅' : resource === 'sources' ? '来源' : '模板'}` : labels[resource].add;
   const fields = $('#editor-fields');
@@ -211,6 +249,7 @@ async function edit(resource, id) {
     upload.input.className = 'file-input';
     const content = field('模板内容', 'content', record.content || '', { tag: 'textarea' });
     content.input.spellcheck = false;
+    content.input.wrap = 'off';
     upload.input.addEventListener('change', async () => {
       const file = upload.input.files[0];
       if (!file) return;
@@ -257,10 +296,14 @@ async function edit(resource, id) {
 function showEditorError(message) { $('#editor-error').textContent = message; $('#editor-error').hidden = false; }
 
 async function copyLink(record) {
+  const navigation = state.navigation;
   const url = new URL('/sub', location.origin);
   url.searchParams.set('key', record.key);
   try { await navigator.clipboard.writeText(url.href); toast('订阅链接已复制'); }
-  catch { $('#copy-url').value = url.href; $('#copy-dialog').showModal(); $('#copy-url').select(); }
+  catch {
+    if (navigation !== state.navigation || !state.authenticated) return;
+    $('#copy-url').value = url.href; $('#copy-dialog').showModal(); $('#copy-url').select();
+  }
 }
 
 async function refreshOne(record) {
@@ -272,7 +315,9 @@ async function refreshOne(record) {
 }
 
 async function previewSource(record) {
+  const navigation = state.navigation;
   const result = await api(`/sources/${record.id}/preview`);
+  if (navigation !== state.navigation || !state.authenticated) return;
   $('#preview-name').textContent = result.name;
   $('#preview-status').className = `badge ${result.cacheStatus}`;
   $('#preview-status').textContent = cacheLabels[result.cacheStatus];
@@ -311,15 +356,19 @@ $('#auth-form').addEventListener('submit', async event => {
   } catch (error) { $('#auth-error').textContent = error.message; $('#auth-error').hidden = false; }
   finally { $('#auth-submit').disabled = false; }
 });
-$('#auth-switch').addEventListener('click', () => showAuth(state.mode === 'reset' ? 'login' : 'reset'));
+$('#auth-switch').addEventListener('click', () => navigate(state.mode === 'reset' ? 'login' : 'reset'));
 $('#logout').addEventListener('click', async () => {
   try { await api('/logout', 'POST', {}); showAuth('login'); }
   catch (error) { toast(error.message); }
 });
-for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => { state.tab = button.dataset.tab; render(); });
+for (const link of document.querySelectorAll('[data-tab]')) link.addEventListener('click', event => {
+  if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  navigate(link.dataset.tab);
+});
 $('#add-record').addEventListener('click', () => edit(state.tab).catch(error => toast(error.message)));
 $('#empty-action').addEventListener('click', () => {
-  if (state.tab === 'subscriptions' && !state.data.sources.length) { state.tab = 'sources'; render(); }
+  if (state.tab === 'subscriptions' && !state.data.sources.length) navigate('sources');
   edit(state.tab).catch(error => toast(error.message));
 });
 $('#reload').addEventListener('click', async () => {
@@ -328,6 +377,7 @@ $('#reload').addEventListener('click', async () => {
   finally { $('#reload').disabled = false; }
 });
 $('#refresh-all').addEventListener('click', async () => {
+  const navigation = state.navigation;
   state.allBusy = true; render();
   try {
     const { results } = await api('/sources/refresh-all', 'POST', {});
@@ -337,7 +387,7 @@ $('#refresh-all').addEventListener('click', async () => {
       const item = node('li', result.ok ? '' : 'failed');
       item.append(node('strong', '', result.name), node('span', '', cacheMessage(result.message))); return item;
     }));
-    $('#results-dialog').showModal();
+    if (navigation === state.navigation && state.authenticated) $('#results-dialog').showModal();
   } catch (error) { toast(error.message); }
   finally { state.allBusy = false; try { await load(); } catch (error) { toast(error.message); } }
 });
@@ -374,8 +424,10 @@ async function initialize() {
   try {
     const status = await api('/status');
     state.initialized = status.initialized;
+    state.returnTo = SubConvertRoutes.resolveRoute(location.hash, status).returnTo;
     if (status.authenticated) await showApp(status);
-    else showAuth(status.initialized ? 'login' : 'setup');
+    else { state.ready = true; applyRoute(); }
   } catch (error) { $('#loading').textContent = `连接失败：${error.message}。请刷新页面重试。`; }
 }
+window.addEventListener('hashchange', applyRoute);
 initialize();

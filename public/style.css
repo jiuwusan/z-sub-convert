@@ -617,6 +617,17 @@ dialog::backdrop {
   background:#132c2266;
   backdrop-filter:blur(3px)
 }
+#editor.template-editor {
+  width:min(1200px,92vw);
+  max-width:calc(100vw - 32px);
+}
+#editor.template-editor textarea[name="content"] {
+  min-width:0;
+  white-space:pre;
+  overflow-wrap:normal;
+  word-break:normal;
+  overflow-x:auto;
+}
 dialog form {
   display:flex;
   flex-direction:column;
