@@ -686,6 +686,7 @@ dialog form {
   flex-shrink:0
 }
 .source-options {
+  flex-shrink:0;
   border:1px solid #dfe7df;
   border-radius:7px;
   max-height:220px;
