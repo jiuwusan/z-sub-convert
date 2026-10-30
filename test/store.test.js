@@ -17,8 +17,8 @@ test('seeds template once, serializes concurrent transactions and persists resta
   const options = await fixture(t);
   const store = await Store.open(options);
   assert.equal(store.read().version, 3);
-  assert.equal(store.read().bases[0].name, '默认基础模板');
-  assert.equal(store.read().templates[0].name, '默认规则模板');
+  assert.equal(store.read().bases[0].name, '默认模板');
+  assert.equal(store.read().templates[0].name, '默认模板');
   assert.deepEqual(store.read().nameservers, []);
   await Promise.all(Array.from({ length: 12 }, (_, i) => store.update(state => state.sources.push({ id: String(i) }))));
   await store.update(state => { state.templates[0].name = '自定义'; });
@@ -59,4 +59,16 @@ test('failed atomic rename preserves in-memory and on-disk records', async t => 
   store.path = originalPath;
   await store.update(state => state.sources.push({ id: 'saved-write' }));
   assert.deepEqual((await Store.open(options)).read().sources, [{ id: 'saved-write' }]);
+});
+
+test('seeds provider names by DNS hostname and preserves names maintained after initialization', async t => {
+  const options = await fixture(t);
+  options.templatePath = join(__dirname, '../prds/template.yaml');
+  const store = await Store.open(options);
+  assert.deepEqual(store.read().nameservers.map(row => row.name), ['Cloudflare', 'Google', 'Tencent', 'Alidns']);
+  await store.update(state => { state.nameservers[0].name = '自定义名称'; });
+  assert.equal((await Store.open(options)).read().nameservers[0].name, '自定义名称');
+  const custom = await fixture(t);
+  await writeFile(custom.templatePath, 'dns:\n  nameserver: [https://dns.google/dns-query, 1.1.1.1, https://doh.pub/dns-query]\n');
+  assert.deepEqual((await Store.open(custom)).read().nameservers.map(row => row.name), ['Google', '默认 DNS 2', 'Tencent']);
 });

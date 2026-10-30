@@ -5,6 +5,17 @@ const { join } = require('node:path');
 const { randomUUID } = require('node:crypto');
 const YAML = require('yaml');
 const { splitTemplate } = require('./template-parts');
+const DNS_NAMES = new Map([
+  ['cloudflare-dns.com', 'Cloudflare'],
+  ['dns.google', 'Google'],
+  ['doh.pub', 'Tencent'],
+  ['dns.alidns.com', 'Alidns']
+]);
+
+function defaultDnsName(address, index) {
+  try { return DNS_NAMES.get(new URL(address).hostname) || `默认 DNS ${index + 1}`; }
+  catch { return `默认 DNS ${index + 1}`; }
+}
 
 class Store {
   static async open({ directory, templatePath }) {
@@ -23,9 +34,9 @@ class Store {
       const content = await readFile(templatePath, 'utf8');
       const parts = splitTemplate(YAML.parse(content));
       store.state = { version: 3, account: null, sources: [],
-        bases: [{ id: randomUUID(), name: '默认基础模板', content: YAML.stringify(parts.base, { lineWidth: 0 }) }],
-        nameservers: parts.nameservers.map((address, index) => ({ id: randomUUID(), name: `默认 DNS ${index + 1}`, address })),
-        templates: [{ id: randomUUID(), name: '默认规则模板', content: YAML.stringify(parts.rules, { lineWidth: 0 }) }], subscriptions: [] };
+        bases: [{ id: randomUUID(), name: '默认模板', content: YAML.stringify(parts.base, { lineWidth: 0 }) }],
+        nameservers: parts.nameservers.map((address, index) => ({ id: randomUUID(), name: defaultDnsName(address, index), address })),
+        templates: [{ id: randomUUID(), name: '默认模板', content: YAML.stringify(parts.rules, { lineWidth: 0 }) }], subscriptions: [] };
       await store.persist(store.state);
     }
     return store;

@@ -348,14 +348,15 @@ async function edit(resource, id) {
     sourceDns.append(useSource, node('span', '', '使用订阅源 nameserver'));
     const dnsTitle = node('span', 'field-title');
     dnsTitle.id = 'nameserver-group-label';
-    const dnsList = node('div', 'source-options'); dnsList.setAttribute('role', 'group'); dnsList.setAttribute('aria-labelledby', dnsTitle.id);
+    const dnsList = node('div', 'nameserver-options'); dnsList.setAttribute('role', 'group'); dnsList.setAttribute('aria-labelledby', dnsTitle.id);
     const selectedDns = record.nameserverIds ?? state.data.nameservers.map(item => item.id);
     const dnsOptions = [...selectedDns.map(id => state.data.nameservers.find(item => item.id === id)).filter(Boolean), ...state.data.nameservers.filter(item => !selectedDns.includes(item.id))];
     if (!dnsOptions.length) dnsList.append(node('p', 'field-help', '还没有 nameserver，可到对应页面维护手动或备用地址。'));
     for (const item of dnsOptions) {
-      const label = node('label', 'source-option');
+      const label = node('label', 'nameserver-tag');
+      label.title = item.address;
       const check = node('input'); check.type = 'checkbox'; check.name = 'nameserverIds'; check.value = item.id; check.checked = selectedDns.includes(item.id);
-      const caption = node('span', '', item.name); caption.append(node('small', '', item.address));
+      const caption = node('span', '', item.name);
       label.append(check, caption); dnsList.append(label);
     }
     const updateDnsTitle = () => { dnsTitle.textContent = useSource.checked ? '备用 nameserver（所有来源未提供时使用，可多选）' : 'Nameserver（可多选，至少一项）'; };

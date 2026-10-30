@@ -725,6 +725,60 @@ dialog form {
   margin-bottom:10px;
   color:#43564a
 }
+.nameserver-options {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  flex-shrink:0
+}
+.nameserver-tag {
+  position:relative;
+  display:block;
+  max-width:100%;
+  margin:0;
+  cursor:pointer
+}
+.nameserver-tag input {
+  position:absolute;
+  opacity:0;
+  width:1px;
+  height:1px;
+  min-height:0;
+  padding:0;
+  margin:0
+}
+.nameserver-tag span {
+  display:block;
+  padding:7px 10px;
+  border:1px solid #dfe7df;
+  border-radius:6px;
+  background:#fff;
+  color:#718177;
+  font-size:12px;
+  font-weight:400;
+  overflow-wrap:anywhere
+}
+.nameserver-tag span::before {
+  content:'✓';
+  display:inline-block;
+  width:16px;
+  visibility:hidden
+}
+.nameserver-tag:hover span {
+  border-color:#8db5a2
+}
+.nameserver-tag input:checked+span {
+  border-color:#8db5a2;
+  background:#eaf3ed;
+  color:#22684c
+}
+.nameserver-tag input:checked+span::before {
+  visibility:visible
+}
+.nameserver-tag input:focus-visible+span {
+  outline:3px solid #8cc9b3;
+  outline-offset:2px
+}
 .file-input {
   padding:8px;
   font-size:12px

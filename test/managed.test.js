@@ -332,7 +332,7 @@ test('protects all selected parts and applies manual DNS irrespective of source 
   await assert.rejects(f.service.save('bases', { name: '语法错误', content: 'dns: [' }), /YAML/);
   await assert.rejects(f.service.save('subscriptions', { ...f.sub, baseId: 'missing' }, f.sub.id), /不存在/);
   await assert.rejects(f.service.save('subscriptions', { ...f.sub, nameserverIds: ['missing'] }, f.sub.id), /不存在/);
-  assert.equal(f.service.list().subscriptions[0].baseName, '默认基础模板');
+  assert.equal(f.service.list().subscriptions[0].baseName, '默认模板');
   assert.deepEqual(f.service.list().subscriptions[0].nameserverNames, ['自定义协议']);
   await f.service.remove('subscriptions', f.sub.id);
   await f.service.remove('nameservers', manual.id);
