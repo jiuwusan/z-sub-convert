@@ -22,6 +22,8 @@ dns:
   nameserver:
     - https://cloudflare-dns.com/dns-query#🚀 节点选择
     - https://dns.google/dns-query#🚀 节点选择
+    - https://doh.pub/dns-query
+    - https://dns.alidns.com/dns-query
   nameserver-policy:
     "geosite:cn":
       - https://doh.pub/dns-query
