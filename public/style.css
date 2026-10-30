@@ -486,6 +486,59 @@ td:last-child,th:last-child {
   overflow:hidden;
   text-overflow:ellipsis
 }
+.subscription-list table {
+  table-layout:fixed;
+  min-width:900px
+}
+.subscription-list th {
+  padding:13px 16px
+}
+.subscription-list th:nth-child(1) { width:18% }
+.subscription-list th:nth-child(2) { width:20% }
+.subscription-list th:nth-child(3) { width:22% }
+.subscription-list th:last-child { width:200px; text-align:right }
+.subscription-list td {
+  padding:18px 16px;
+  vertical-align:middle
+}
+.subscription-list .record-name {
+  max-width:100%;
+  white-space:nowrap
+}
+.subscription-source-tags {
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px
+}
+.subscription-source-tags .tag {
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  margin:0
+}
+.subscription-config {
+  display:grid;
+  gap:6px;
+  font-size:11px
+}
+.config-line {
+  display:flex;
+  gap:8px;
+  align-items:center
+}
+.config-line>.muted {
+  flex-shrink:0
+}
+.config-value {
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap
+}
+.subscription-list .row-actions {
+  justify-content:flex-end
+}
 .subline {
   font-size:10px;
   color:#9aa79d;
@@ -900,6 +953,62 @@ dialog form {
   }
 }
 @media(max-width:700px) {
+  .subscription-list table {
+    min-width:0
+  }
+  .subscription-list thead {
+    position:absolute;
+    width:1px;
+    height:1px;
+    overflow:hidden;
+    clip-path:inset(50%)
+  }
+  .subscription-list tbody {
+    display:grid;
+    gap:12px;
+    padding:12px
+  }
+  .subscription-list tbody:empty {
+    display:none
+  }
+  .subscription-list tr {
+    display:block;
+    border:1px solid var(--line);
+    border-radius:8px;
+    overflow:hidden
+  }
+  .subscription-list td {
+    display:grid;
+    grid-template-columns:72px minmax(0,1fr);
+    gap:10px;
+    padding:10px 14px;
+    border:0;
+    white-space:normal
+  }
+  .subscription-list td::before {
+    content:attr(data-label);
+    color:var(--muted);
+    font-size:10px;
+    line-height:1.7
+  }
+  .subscription-list td:first-child,.subscription-list td:last-child {
+    display:block;
+    padding:14px;
+    border-bottom:1px solid var(--line)
+  }
+  .subscription-list td:last-child {
+    border-top:1px solid var(--line);
+    border-bottom:0
+  }
+  .subscription-list td:first-child::before,.subscription-list td:last-child::before {
+    display:none
+  }
+  .subscription-list .row-actions {
+    flex-wrap:wrap
+  }
+  .subscription-list .row-actions button {
+    min-height:36px
+  }
   .auth-layout {
     grid-template-columns:1fr
   }

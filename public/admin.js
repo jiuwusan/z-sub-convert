@@ -3,7 +3,7 @@
 const $ = selector => document.querySelector(selector);
 const state = { tab: 'subscriptions', data: { sources: [], bases: [], nameservers: [], templates: [], subscriptions: [] }, csrf: '', mode: 'login', initialized: false, authenticated: false, ready: false, route: '', returnTo: 'subscriptions', navigation: 0, editing: null, previewContent: '', previewSourceId: null, refreshing: new Set(), allBusy: false };
 const labels = {
-  subscriptions: { title: '系统订阅', list: '全部订阅', add: '新增订阅', description: '组合来源、基础模板、DNS 和规则模板，生成专属订阅链接。', heads: ['订阅名称', '第三方来源 / 配置', '操作'] },
+  subscriptions: { title: '系统订阅', list: '全部订阅', add: '新增订阅', description: '组合来源、基础模板、DNS 和规则模板，生成专属订阅链接。', heads: ['订阅名称', '第三方来源', '模板配置', 'DNS 配置', '操作'] },
   sources: { title: '第三方订阅源', list: '全部来源', add: '新增来源', description: '维护并更新第三方来源，缓存结果供所有关联订阅复用。', heads: ['来源名称', '订阅链接摘要 / User-Agent', '关联订阅', '套餐信息', '缓存状态', '最近更新成功', '最近更新结果', '操作'] },
   bases: { title: '基础模板', list: '全部基础模板', add: '新增基础模板', description: '维护端口、运行模式与 DNS 基础设置，为系统订阅选择一份基础配置。', heads: ['模板名称', '关联订阅', '操作'] },
   nameservers: { title: 'Nameserver', list: '全部 nameserver', add: '新增 nameserver', description: '每条维护一个完整 DNS 地址，可组合使用或作为订阅源 DNS 的备用。', heads: ['名称', 'DNS 地址', '关联订阅', '操作'] },
@@ -176,6 +176,7 @@ function render() {
   const tab = state.tab;
   const config = labels[tab];
   const data = state.data;
+  $('.table-panel').classList.toggle('subscription-list', tab === 'subscriptions');
   $('#breadcrumb').textContent = config.title;
   $('#page-title').textContent = config.title;
   $('#page-description').textContent = config.description;
@@ -208,20 +209,39 @@ function render() {
   for (const record of data[tab]) {
     const row = node('tr');
     const title = node('div');
-    title.append(node('strong', 'record-name', record.name));
-    if (tab === 'subscriptions') title.append(node('small', 'subline', 'Clash.Meta / Mihomo'));
+    const recordName = node('strong', 'record-name', record.name);
+    recordName.title = record.name;
+    title.append(recordName);
     cell(row, title);
     if (tab === 'subscriptions') {
       const sources = node('div');
-      for (const name of record.sourceNames) sources.append(node('span', 'tag', name));
-      sources.append(node('small', 'subline', `基础：${record.baseName}`), node('small', 'subline', `规则：${record.templateName}`));
-      sources.append(node('small', 'subline', record.useSourceNameservers ? 'DNS：订阅源优先' : 'DNS：手动配置'));
-      const dnsNames = node('small', 'subline', `${record.useSourceNameservers ? '备用' : '地址'}：${record.nameserverNames.join('、') || '未选择'}`);
-      dnsNames.title = dnsNames.textContent;
-      sources.append(dnsNames);
+      const sourceTags = node('div', 'subscription-source-tags');
+      for (const name of record.sourceNames.slice(0, 2)) {
+        const tag = node('span', 'tag', name); tag.title = name; sourceTags.append(tag);
+      }
+      if (record.sourceNames.length > 2) {
+        const more = node('span', 'tag', `+${record.sourceNames.length - 2}`);
+        more.title = record.sourceNames.slice(2).join('、');
+        more.setAttribute('aria-label', `其他来源：${more.title}`);
+        sourceTags.append(more);
+      }
+      sources.append(sourceTags);
       const coverage = record.packageCoverage;
       if (coverage) sources.append(node('small', 'subline package-coverage', `套餐信息覆盖 ${coverage.available}/${coverage.total} 个来源`));
       cell(row, sources);
+      const templates = node('div', 'subscription-config');
+      for (const [label, value] of [['基础', record.baseName], ['规则', record.templateName]]) {
+        const line = node('div', 'config-line');
+        const name = node('span', 'config-value', value); name.title = value;
+        line.append(node('span', 'muted', label), name); templates.append(line);
+      }
+      cell(row, templates);
+      const dns = node('div', 'subscription-config');
+      dns.append(node('div', '', record.useSourceNameservers ? '订阅源优先' : '手动配置'));
+      const dnsNames = node('div', 'config-value muted', `${record.useSourceNameservers ? '备用：' : ''}${record.nameserverNames.join('、') || '未选择'}`);
+      dnsNames.title = dnsNames.textContent;
+      dns.append(dnsNames);
+      cell(row, dns);
     } else if (tab === 'sources') {
       const summary = node('div', '', record.urlSummary);
       summary.append(node('small', 'subline', record.userAgent));
@@ -260,6 +280,7 @@ function render() {
       toast('已删除');
     }, 'danger');
     cell(row, actions);
+    if (tab === 'subscriptions') for (const [index, td] of [...row.children].entries()) td.dataset.label = config.heads[index];
     $('#table-body').append(row);
   }
 }
