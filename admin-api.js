@@ -106,7 +106,10 @@ function createAdminHandler({ managed, auth, store, now = Date.now }) {
     const [, resource, id, action] = match;
     if (action === '/download') {
       if (!id || !['GET', 'HEAD'].includes(method)) throw new AppError('接口不存在', 404);
-      if (resource === 'sources') {
+      if (resource === 'bases' || resource === 'templates') {
+        const template = managed.get(resource, id);
+        sendDownload(response, { name: template.name, content: template.content, timestamp: now(), headOnly: method === 'HEAD' });
+      } else if (resource === 'sources') {
         const preview = await managed.preview(id);
         if (preview.content === null) throw new AppError(preview.requiresUpdate
           ? '旧缓存仅包含节点，请先更新来源后下载完整订阅结果' : '暂无可用缓存，请先更新来源后下载', 409);

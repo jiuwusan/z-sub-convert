@@ -244,6 +244,8 @@ function render() {
     if (tab === 'subscriptions') {
       action(actions, '复制', () => copyLink(record));
       action(actions, '下载', () => downloadRecord(tab, record.id));
+    } else if (tab === 'bases' || tab === 'templates') {
+      action(actions, '下载', () => downloadRecord(tab, record.id));
     } else if (tab === 'sources') {
       action(actions, '预览', () => previewSource(record));
       action(actions, '下载', () => downloadRecord(tab, record.id));

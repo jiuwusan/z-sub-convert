@@ -223,3 +223,33 @@ test('manages three independent parts and uses selected manual DNS as source-mod
   const missing = await f.request(`/sub?key=${sub.key}`);
   assert.equal(missing.status, 422); assert.match((await missing.json()).error, /nameserver/);
 });
+
+test('downloads base and rule template originals with authentication and named timestamps', async t => {
+  const f = await fixture(t);
+  await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' }); await f.login();
+  const state = await (await f.request('/api/state')).json();
+  const ruleSeed = (await (await f.request(`/api/templates/${state.templates[0].id}`)).json()).content;
+  for (const [resource, name, content] of [
+    ['bases', '基础模板备份', '\uFEFF# base comment\r\nport: 7890\r\n'],
+    ['templates', '规则模板备份', '\uFEFF# rule comment\r\n' + ruleSeed.replace(/\r?\n/g, '\r\n')]
+  ]) {
+    const record = await (await f.request(`/api/${resource}`, 'POST', { name, content })).json();
+    const path = `/api/${resource}/${record.id}/download`;
+    for (const method of ['GET', 'HEAD']) {
+      assert.equal((await fetch(f.base + path, { method })).status, 401);
+      const result = await f.request(path, method);
+      assert.equal(result.status, 200);
+      assert.match(result.headers.get('content-type'), /yaml/);
+      assert.equal(result.headers.get('cache-control'), 'no-store');
+      assert.equal(decodeURIComponent(result.headers.get('content-disposition').split("filename*=UTF-8''")[1]), `${name}-1793155200123.yaml`);
+      assert.equal(result.headers.get('subscription-userinfo'), null);
+      assert.deepEqual(Buffer.from(await result.arrayBuffer()), method === 'HEAD' ? Buffer.alloc(0) : Buffer.from(content));
+    }
+    const latest = '# edited\n' + content.replace(/^\uFEFF/, '');
+    await f.request(`/api/${resource}/${record.id}`, 'PATCH', { name, content: latest });
+    assert.deepEqual(Buffer.from(await (await f.request(path)).arrayBuffer()), Buffer.from(latest));
+    assert.equal((await f.request(`/api/${resource}/missing/download`)).status, 404);
+  }
+  assert.equal((await f.request(`/api/nameservers/${state.nameservers[0].id}/download`)).status, 404);
+  assert.equal(f.upstreamCalls(), 0);
+});
