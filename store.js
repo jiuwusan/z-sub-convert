@@ -3,6 +3,8 @@
 const { mkdir, readFile, writeFile, rename, unlink } = require('node:fs/promises');
 const { join } = require('node:path');
 const { randomUUID } = require('node:crypto');
+const YAML = require('yaml');
+const { splitTemplate } = require('./template-parts');
 
 class Store {
   static async open({ directory, templatePath }) {
@@ -10,25 +12,21 @@ class Store {
     const store = new Store(directory);
     try {
       store.state = JSON.parse(await readFile(store.path, 'utf8'));
-      if (![1, 2].includes(store.state.version) || !['sources', 'templates', 'subscriptions'].every(k => Array.isArray(store.state[k]))) {
-        throw new Error('Unsupported or invalid data file');
+      if (store.state.version !== 3) {
+        throw Object.assign(new Error('数据版本不兼容；请保留旧数据，使用新的 DATA_DIR 重新维护三类模板'), { code: 'UNSUPPORTED_DATA_VERSION' });
+      }
+      if (!['sources', 'bases', 'nameservers', 'templates', 'subscriptions'].every(k => Array.isArray(store.state[k]))) {
+        throw new Error('Invalid data file');
       }
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
       const content = await readFile(templatePath, 'utf8');
-      store.state = { version: 2, account: null, sources: [], templates: [{ id: randomUUID(), name: '默认模板', content }], subscriptions: [] };
+      const parts = splitTemplate(YAML.parse(content));
+      store.state = { version: 3, account: null, sources: [],
+        bases: [{ id: randomUUID(), name: '默认基础模板', content: YAML.stringify(parts.base, { lineWidth: 0 }) }],
+        nameservers: parts.nameservers.map((address, index) => ({ id: randomUUID(), name: `默认 DNS ${index + 1}`, address })),
+        templates: [{ id: randomUUID(), name: '默认规则模板', content: YAML.stringify(parts.rules, { lineWidth: 0 }) }], subscriptions: [] };
       await store.persist(store.state);
-    }
-    if (store.state.version === 1) {
-      const obsolete = store.state.subscriptions.map(row => row.cache?.file).filter(file => /^cache-[a-z0-9-]+\.yaml$/.test(file || ''));
-      await store.update(state => {
-        state.version = 2;
-        for (const source of state.sources) Object.assign(source, { revision: 1, cache: null, lastSuccessAt: null, lastResult: null });
-        for (const sub of state.subscriptions) {
-          for (const key of ['cache', 'revision', 'lastSuccessAt', 'lastResult']) delete sub[key];
-        }
-      });
-      for (const file of obsolete) await unlink(join(directory, file)).catch(() => {});
     }
     return store;
   }

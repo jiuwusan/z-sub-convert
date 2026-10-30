@@ -2,6 +2,7 @@
 
 const YAML = require('yaml');
 const { parseUserinfo } = require('./userinfo');
+const { uniqueAddresses } = require('./template-parts');
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
@@ -82,7 +83,7 @@ async function readBoundedBody(response, maxBytes) {
   return new TextDecoder('utf-8', { ignoreBOM: true }).decode(body);
 }
 
-function parseSubscription(content) {
+function parseSubscriptionDocument(content) {
   let document;
   try {
     document = YAML.parse(content);
@@ -100,7 +101,11 @@ function parseSubscription(content) {
     || proxy.type.trim() === ''
   ));
   if (hasInvalidProxy) throw new SubscriptionError('Upstream subscription contains an invalid proxy', 502);
-  return document.proxies;
+  return { proxies: document.proxies, nameservers: uniqueAddresses(document.dns?.nameserver) };
+}
+
+function parseSubscription(content) {
+  return parseSubscriptionDocument(content).proxies;
 }
 
 async function fetchSubscriptionDocument(url, options = {}) {
@@ -118,7 +123,7 @@ async function fetchSubscriptionDocument(url, options = {}) {
       throw new SubscriptionError(`Upstream subscription returned HTTP ${response.status}`, 502);
     }
     const content = await readBoundedBody(response, maxBytes);
-    return { content, proxies: parseSubscription(content), userInfo: parseUserinfo(response.headers.get('subscription-userinfo')) };
+    return { content, ...parseSubscriptionDocument(content), userInfo: parseUserinfo(response.headers.get('subscription-userinfo')) };
   } catch (error) {
     if (error instanceof SubscriptionError) throw error;
     if (error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
@@ -145,6 +150,7 @@ module.exports = {
   SubscriptionError,
   fetchSubscriptionDocument,
   parseSubscription,
+  parseSubscriptionDocument,
   fetchOne,
   splitSubscriptionUrls,
   fetchSubscriptions

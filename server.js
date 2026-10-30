@@ -184,8 +184,8 @@ function start() {
     server.listen(port, host, () => {
       console.log(`clash-sub-convert listening on http://${host}:${port}`);
     });
-  }).catch(() => {
-    console.error('Unable to initialize data directory. Check DATA_DIR permissions and state.json.');
+  }).catch(error => {
+    console.error(error.code === 'UNSUPPORTED_DATA_VERSION' ? error.message : 'Unable to initialize data directory. Check DATA_DIR permissions and state.json.');
     process.exitCode = 1;
   });
   return server;

@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { mkdtemp, rm, writeFile, mkdir } = require('node:fs/promises');
+const { mkdtemp, rm, writeFile, readFile, mkdir } = require('node:fs/promises');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 const { Store } = require('../store');
@@ -16,7 +16,10 @@ async function fixture(t) {
 test('seeds template once, serializes concurrent transactions and persists restart state', async t => {
   const options = await fixture(t);
   const store = await Store.open(options);
-  assert.equal(store.read().templates[0].name, '默认模板');
+  assert.equal(store.read().version, 3);
+  assert.equal(store.read().bases[0].name, '默认基础模板');
+  assert.equal(store.read().templates[0].name, '默认规则模板');
+  assert.deepEqual(store.read().nameservers, []);
   await Promise.all(Array.from({ length: 12 }, (_, i) => store.update(state => state.sources.push({ id: String(i) }))));
   await store.update(state => { state.templates[0].name = '自定义'; });
   const snapshot = store.read();
@@ -26,6 +29,16 @@ test('seeds template once, serializes concurrent transactions and persists resta
   const reopened = await Store.open(options);
   assert.equal(reopened.read().sources.length, 12);
   assert.equal(reopened.read().templates[0].name, '自定义');
+});
+
+test('rejects old schemas without splitting, deleting or overwriting existing data', async t => {
+  const options = await fixture(t);
+  for (const version of [1, 2]) {
+    const original = JSON.stringify({ version, account: { username: 'kept' }, sources: [], templates: [], subscriptions: [] });
+    await writeFile(join(options.directory, 'state.json'), original);
+    await assert.rejects(Store.open(options), /新.*DATA_DIR|版本/);
+    assert.equal(await readFile(join(options.directory, 'state.json'), 'utf8'), original);
+  }
 });
 test('failed transaction leaves state intact and does not block future writes', async t => {
   const store = await Store.open(await fixture(t));

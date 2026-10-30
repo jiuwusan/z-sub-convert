@@ -881,6 +881,7 @@ dialog form {
   }
   .sidebar nav {
     display:flex;
+    flex-wrap:wrap;
     gap:5px
   }
   .nav-item {

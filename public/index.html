@@ -42,7 +42,9 @@
       <nav aria-label="后台导航">
         <a href="#/subscriptions" data-tab="subscriptions" class="nav-item active"><span class="nav-symbol">⇄</span>系统订阅<span id="nav-count">0</span></a>
         <a href="#/sources" data-tab="sources" class="nav-item"><span class="nav-symbol">↗</span>第三方订阅源</a>
-        <a href="#/templates" data-tab="templates" class="nav-item"><span class="nav-symbol">▤</span>订阅模板</a>
+        <a href="#/bases" data-tab="bases" class="nav-item"><span class="nav-symbol">▤</span>基础模板</a>
+        <a href="#/nameservers" data-tab="nameservers" class="nav-item"><span class="nav-symbol">◎</span>Nameserver</a>
+        <a href="#/templates" data-tab="templates" class="nav-item"><span class="nav-symbol">☷</span>规则模板</a>
       </nav>
       <div class="sidebar-note"><span class="live-dot"></span>按需更新，稳定连接<p>缓存有效期 2 小时<br>更新失败保留上次有效内容</p></div>
       <div class="account"><span class="avatar">管</span><div><strong id="account-name">管理员</strong><small>管理员</small></div><button id="logout" class="text-button" title="退出登录">退出</button></div>
@@ -55,7 +57,7 @@
           <div><span>系统订阅</span><strong id="stat-subscriptions">0</strong><small>固定地址，随时订阅</small></div>
           <div><span>有效来源缓存</span><strong id="stat-cached">0</strong><small>2 小时内更新成功</small></div>
           <div><span>第三方来源</span><strong id="stat-sources">0</strong><small>统一维护，灵活组合</small></div>
-          <div><span>订阅模板</span><strong id="stat-templates">0</strong><small>每份订阅，自由选择</small></div>
+          <div><span>模板 / DNS 配置</span><strong id="stat-templates">0</strong><small>三类配置，按需组合</small></div>
         </div>
         <section class="table-panel" aria-labelledby="list-title">
           <div class="panel-heading"><h2 id="list-title">全部订阅 <span id="list-count" class="count">0</span></h2><span id="list-hint" class="muted">保存配置不会立即拉取第三方订阅</span></div>

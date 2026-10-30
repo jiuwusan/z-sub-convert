@@ -1,11 +1,13 @@
 'use strict';
 
 const $ = selector => document.querySelector(selector);
-const state = { tab: 'subscriptions', data: { sources: [], templates: [], subscriptions: [] }, csrf: '', mode: 'login', initialized: false, authenticated: false, ready: false, route: '', returnTo: 'subscriptions', navigation: 0, editing: null, previewContent: '', previewSourceId: null, refreshing: new Set(), allBusy: false };
+const state = { tab: 'subscriptions', data: { sources: [], bases: [], nameservers: [], templates: [], subscriptions: [] }, csrf: '', mode: 'login', initialized: false, authenticated: false, ready: false, route: '', returnTo: 'subscriptions', navigation: 0, editing: null, previewContent: '', previewSourceId: null, refreshing: new Set(), allBusy: false };
 const labels = {
-  subscriptions: { title: '系统订阅', list: '全部订阅', add: '新增订阅', description: '使用第三方来源缓存和所选模板生成专属订阅链接。', heads: ['订阅名称', '第三方来源 / 模板', '操作'] },
+  subscriptions: { title: '系统订阅', list: '全部订阅', add: '新增订阅', description: '组合来源、基础模板、DNS 和规则模板，生成专属订阅链接。', heads: ['订阅名称', '第三方来源 / 配置', '操作'] },
   sources: { title: '第三方订阅源', list: '全部来源', add: '新增来源', description: '维护并更新第三方来源，缓存结果供所有关联订阅复用。', heads: ['来源名称', '订阅链接摘要 / User-Agent', '关联订阅', '套餐信息', '缓存状态', '最近更新成功', '最近更新结果', '操作'] },
-  templates: { title: '订阅模板', list: '全部模板', add: '新增模板', description: '维护转换模板，为每份系统订阅选择合适的配置。', heads: ['模板名称', '关联订阅', '操作'] }
+  bases: { title: '基础模板', list: '全部基础模板', add: '新增基础模板', description: '维护端口、运行模式与 DNS 基础设置，为系统订阅选择一份基础配置。', heads: ['模板名称', '关联订阅', '操作'] },
+  nameservers: { title: 'Nameserver', list: '全部 nameserver', add: '新增 nameserver', description: '每条维护一个完整 DNS 地址，可组合使用或作为订阅源 DNS 的备用。', heads: ['名称', 'DNS 地址', '关联订阅', '操作'] },
+  templates: { title: '规则模板', list: '全部规则模板', add: '新增规则模板', description: '维护 proxies、proxy-groups 和 rules，保存时检查必要分组。', heads: ['模板名称', '关联订阅', '操作'] }
 };
 const cacheLabels = { empty: '无缓存', valid: '缓存有效', expired: '已过期', invalidated: '待更新' };
 let toastTimer;
@@ -189,7 +191,7 @@ function render() {
   $('#nav-count').textContent = data.subscriptions.length;
   $('#stat-cached').textContent = data.sources.filter(row => row.cacheStatus === 'valid').length;
   $('#stat-sources').textContent = data.sources.length;
-  $('#stat-templates').textContent = data.templates.length;
+  $('#stat-templates').textContent = data.bases.length + data.nameservers.length + data.templates.length;
   const heading = node('tr');
   for (const title of config.heads) heading.append(node('th', '', title));
   $('#table-head').replaceChildren(heading);
@@ -197,11 +199,11 @@ function render() {
   $('#table-body').replaceChildren();
   $('#empty').hidden = data[tab].length > 0;
   $('#total-label').textContent = `共 ${data[tab].length} 条记录`;
-  $('#cache-hint').textContent = tab === 'sources' ? '正文与套餐共享 2 小时缓存 · 支持手动更新' : tab === 'templates' ? '模板修改后重新生成结果，无需更新来源' : '关联订阅共享来源缓存 · 按当前模板生成';
-  $('#list-hint').textContent = tab === 'templates' ? '模板在保存时校验，修改后自动应用到关联订阅' : tab === 'sources' ? '来源独立缓存，更新成功后所有关联订阅使用新数据' : '需要更新第三方数据时，请到来源列表更新';
+  $('#cache-hint').textContent = tab === 'sources' ? '正文与套餐共享 2 小时缓存 · 支持手动更新' : tab === 'subscriptions' ? '关联订阅共享来源缓存 · 按当前配置生成' : '配置修改后自动应用，无需更新来源';
+  $('#list-hint').textContent = tab === 'templates' ? '仅规则模板校验业务结构，引用中的配置不能删除' : tab === 'sources' ? '来源独立缓存，更新成功后所有关联订阅使用新数据' : tab === 'subscriptions' ? '需要更新第三方数据时，请到来源列表更新' : '独立维护，多份订阅可复用';
   const needsSource = tab === 'subscriptions' && !data.sources.length;
-  $('#empty-title').textContent = tab === 'subscriptions' ? '创建你的第一份订阅' : tab === 'sources' ? '添加第一个第三方来源' : '创建你的订阅模板';
-  $('#empty-description').textContent = tab === 'subscriptions' ? '选择一个或多个第三方来源，再搭配模板生成订阅。' : tab === 'sources' ? '保存来源名称、订阅链接和 User-Agent，供系统订阅使用。' : '粘贴 YAML 或上传模板文件，保存后即可关联到订阅。';
+  $('#empty-title').textContent = tab === 'subscriptions' ? '创建你的第一份订阅' : tab === 'sources' ? '添加第一个第三方来源' : `添加你的${config.title}`;
+  $('#empty-description').textContent = tab === 'subscriptions' ? '选择来源、基础模板、nameserver 和规则模板生成订阅。' : tab === 'sources' ? '保存来源名称、订阅链接和 User-Agent，供系统订阅使用。' : tab === 'nameservers' ? '维护单个 DNS 地址，保留协议、参数及 # 后的内容。' : '粘贴 YAML 或上传模板文件，保存后即可关联到订阅。';
   $('#empty-action').textContent = needsSource ? '添加第三方订阅源' : config.add;
   for (const record of data[tab]) {
     const row = node('tr');
@@ -212,7 +214,11 @@ function render() {
     if (tab === 'subscriptions') {
       const sources = node('div');
       for (const name of record.sourceNames) sources.append(node('span', 'tag', name));
-      sources.append(node('small', 'subline', record.templateName));
+      sources.append(node('small', 'subline', `基础：${record.baseName}`), node('small', 'subline', `规则：${record.templateName}`));
+      sources.append(node('small', 'subline', record.useSourceNameservers ? 'DNS：订阅源优先' : 'DNS：手动配置'));
+      const dnsNames = node('small', 'subline', `${record.useSourceNameservers ? '备用' : '地址'}：${record.nameserverNames.join('、') || '未选择'}`);
+      dnsNames.title = dnsNames.textContent;
+      sources.append(dnsNames);
       const coverage = record.packageCoverage;
       if (coverage) sources.append(node('small', 'subline package-coverage', `套餐信息覆盖 ${coverage.available}/${coverage.total} 个来源`));
       cell(row, sources);
@@ -229,7 +235,11 @@ function render() {
       const resultEl = node('span', result ? result.ok ? 'result-ok' : 'result-error' : 'muted', result ? cacheMessage(result.message) : '—');
       if (result) resultEl.title = formatTime(result.at);
       cell(row, resultEl);
-    } else cell(row, `${data.subscriptions.filter(sub => sub.templateId === record.id).length} 份订阅`);
+    } else {
+      if (tab === 'nameservers') cell(row, record.address);
+      const count = data.subscriptions.filter(sub => tab === 'bases' ? sub.baseId === record.id : tab === 'nameservers' ? sub.nameserverIds.includes(record.id) : sub.templateId === record.id).length;
+      cell(row, `${count} 份订阅`);
+    }
     const actions = node('div', 'row-actions');
     if (tab === 'subscriptions') {
       action(actions, '复制', () => copyLink(record));
@@ -269,16 +279,19 @@ async function edit(resource, id) {
   const navigation = state.navigation;
   const record = id ? await api(`/${resource}/${id}`) : {};
   if (navigation !== state.navigation || !state.authenticated) return;
-  $('#editor').classList.toggle('template-editor', resource === 'templates');
+  $('#editor').classList.toggle('template-editor', ['bases', 'templates'].includes(resource));
   state.editing = { resource, id };
-  $('#editor-title').textContent = id ? `编辑${labels[resource].title === '系统订阅' ? '订阅' : resource === 'sources' ? '来源' : '模板'}` : labels[resource].add;
+  $('#editor-title').textContent = id ? `编辑${resource === 'subscriptions' ? '订阅' : resource === 'sources' ? '来源' : labels[resource].title}` : labels[resource].add;
   const fields = $('#editor-fields');
   fields.replaceChildren(field('名称', 'name', record.name, { maxLength: 120, placeholder: resource === 'subscriptions' ? '例如：日常使用' : resource === 'sources' ? '例如：主力机场' : '例如：日常分流模板' }).label);
   if (resource === 'sources') {
     fields.append(field('第三方订阅链接', 'url', record.url, { type: 'url', maxLength: 8192, placeholder: 'https://example.com/subscribe?token=…' }).label);
     fields.append(field('User-Agent', 'userAgent', record.userAgent ?? 'clash-verge/v2.4.5', { maxLength: 512 }).label);
     fields.append(node('p', 'field-help', '列表将隐藏链接中的令牌；保存仅维护配置，不拉取第三方内容。'));
-  } else if (resource === 'templates') {
+  } else if (resource === 'nameservers') {
+    fields.append(field('DNS 地址', 'address', record.address, { maxLength: 8192, placeholder: 'https://dns.google/dns-query#🚀 节点选择' }).label);
+    fields.append(node('p', 'field-help', '每条一个地址，完整保留 # 后的内容。选择引用的分组时，请与规则模板保持一致。'));
+  } else if (['bases', 'templates'].includes(resource)) {
     const upload = field('从文件读取（可选）', 'file', '', { type: 'file' });
     upload.input.required = false;
     upload.input.accept = '.yaml,.yml,.txt,text/yaml,text/plain';
@@ -293,7 +306,9 @@ async function edit(resource, id) {
       try { content.input.value = await file.text(); $('#editor-error').hidden = true; }
       catch { showEditorError('文件读取失败，请重新选择'); }
     });
-    fields.append(upload.label, content.label, node('p', 'field-help', '须包含 proxies、proxy-groups，以及“🚀 节点选择”“🔰 故障转移”分组。保存时将检查模板。'));
+    fields.append(upload.label, content.label, node('p', 'field-help', resource === 'templates'
+      ? '须包含 proxies、proxy-groups、rules 数组，以及“🚀 节点选择”“🔰 故障转移”分组。保存时校验规则结构。'
+      : '仅检查 YAML 语法。维护基础配置与其他 DNS 设置；最终的 dns.nameserver 和规则字段由独立选择的配置替换。'));
   } else {
     const group = node('div');
     const groupTitle = node('span', 'field-title', '第三方订阅源（可多选）');
@@ -317,13 +332,33 @@ async function edit(resource, id) {
       label.append(check, caption); list.append(label);
     }
     group.append(groupTitle, list);
-    const template = node('label', '', '订阅模板');
-    const select = node('select');
-    select.name = 'templateId'; select.required = true;
-    for (const record of state.data.templates) { const option = node('option', '', record.name); option.value = record.id; select.append(option); }
-    if (record.templateId) select.value = record.templateId;
-    template.append(select);
-    fields.append(group, template, node('p', 'field-help', '按来源列表顺序合并缓存数据，再应用所选模板。保存不拉取，来源无缓存或已过期时访问才更新；也可到来源列表手动更新。订阅链接保持不变。'));
+    fields.append(group);
+    for (const [title, name, options] of [['基础模板', 'baseId', state.data.bases], ['规则模板', 'templateId', state.data.templates]]) {
+      const label = node('label', '', title);
+      const select = node('select'); select.name = name; select.required = true;
+      if (!options.length) { const option = node('option', '', `请先添加${title}`); option.value = ''; select.append(option); }
+      for (const item of options) { const option = node('option', '', item.name); option.value = item.id; select.append(option); }
+      if (record[name]) select.value = record[name];
+      label.append(select); fields.append(label);
+    }
+    const sourceDns = node('label', 'source-option');
+    const useSource = node('input'); useSource.type = 'checkbox'; useSource.name = 'useSourceNameservers'; useSource.checked = record.useSourceNameservers ?? false;
+    sourceDns.append(useSource, node('span', '', '使用订阅源 nameserver'));
+    const dnsTitle = node('span', 'field-title');
+    dnsTitle.id = 'nameserver-group-label';
+    const dnsList = node('div', 'source-options'); dnsList.setAttribute('role', 'group'); dnsList.setAttribute('aria-labelledby', dnsTitle.id);
+    const selectedDns = record.nameserverIds ?? state.data.nameservers.map(item => item.id);
+    const dnsOptions = [...selectedDns.map(id => state.data.nameservers.find(item => item.id === id)).filter(Boolean), ...state.data.nameservers.filter(item => !selectedDns.includes(item.id))];
+    if (!dnsOptions.length) dnsList.append(node('p', 'field-help', '还没有 nameserver，可到对应页面维护手动或备用地址。'));
+    for (const item of dnsOptions) {
+      const label = node('label', 'source-option');
+      const check = node('input'); check.type = 'checkbox'; check.name = 'nameserverIds'; check.value = item.id; check.checked = selectedDns.includes(item.id);
+      const caption = node('span', '', item.name); caption.append(node('small', '', item.address));
+      label.append(check, caption); dnsList.append(label);
+    }
+    const updateDnsTitle = () => { dnsTitle.textContent = useSource.checked ? '备用 nameserver（所有来源未提供时使用，可多选）' : 'Nameserver（可多选，至少一项）'; };
+    useSource.addEventListener('change', updateDnsTitle); updateDnsTitle();
+    fields.append(sourceDns, dnsTitle, dnsList, node('p', 'field-help', '勾选后优先合并来源缓存中的 dns.nameserver，全部来源均未提供时才使用备用项；手动选择始终可用。保存不拉取，访问时按需更新缓存。'));
   }
   $('#editor-error').hidden = true;
   $('#editor').showModal();
@@ -458,10 +493,13 @@ $('#editor-form').addEventListener('submit', async event => {
     const form = new FormData(event.target);
     const body = { name: form.get('name') };
     if (resource === 'sources') Object.assign(body, { url: form.get('url'), userAgent: form.get('userAgent') });
-    else if (resource === 'templates') body.content = form.get('content');
+    else if (['bases', 'templates'].includes(resource)) body.content = form.get('content');
+    else if (resource === 'nameservers') body.address = form.get('address');
     else {
       body.sourceIds = form.getAll('sourceIds'); body.templateId = form.get('templateId');
+      body.baseId = form.get('baseId'); body.nameserverIds = form.getAll('nameserverIds'); body.useSourceNameservers = form.has('useSourceNameservers');
       if (!body.sourceIds.length) throw Error('请至少选择一个第三方订阅源');
+      if (!body.useSourceNameservers && !body.nameserverIds.length) throw Error('请至少选择一个 nameserver');
     }
     await api(`/${resource}${id ? `/${id}` : ''}`, id ? 'PATCH' : 'POST', body);
     $('#editor').close(); await load(); toast('已保存');

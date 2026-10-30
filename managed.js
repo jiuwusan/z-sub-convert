@@ -5,26 +5,20 @@ const { readFile, writeFile, unlink } = require('node:fs/promises');
 const { join } = require('node:path');
 const YAML = require('yaml');
 const { AppError } = require('./auth');
-const { fetchSubscriptionDocument, parseSubscription, SubscriptionError } = require('./fetch-subscriptions');
+const { fetchSubscriptionDocument, parseSubscriptionDocument, SubscriptionError } = require('./fetch-subscriptions');
 const { transformConfig } = require('./transform');
 const { aggregateUserinfo } = require('./userinfo');
+const { parseTemplate, validateRuleTemplate: validateTemplate, chooseNameservers, composeTemplate } = require('./template-parts');
 
 const CACHE_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_AGENT = 'clash-verge/v2.4.5';
-const RESOURCES = ['sources', 'templates', 'subscriptions'];
+const RESOURCES = ['sources', 'bases', 'nameservers', 'templates', 'subscriptions'];
 
 function text(value, label, maximum = 120) {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > maximum) {
     throw new AppError(`${label}必填，且不能超过 ${maximum} 个字符`);
   }
   return value.trim();
-}
-
-function validateTemplate(content) {
-  if (typeof content !== 'string' || Buffer.byteLength(content) > 1024 * 1024) throw new AppError('模板不能为空，且不能超过 1 MiB');
-  try { transformConfig(YAML.parse(content), []); }
-  catch (error) { throw new AppError(`模板校验失败：${error.message}`); }
-  return content;
 }
 
 // Do not expose credentials in the authority, query values or secret path segments.
@@ -69,10 +63,14 @@ class Managed {
         userInfo: cache?.userInfo ?? null
       })),
       templates: state.templates.map(({ content, ...row }) => row),
+      bases: state.bases.map(({ content, ...row }) => row),
+      nameservers: state.nameservers,
       subscriptions: state.subscriptions.map(row => ({
         ...row,
         sourceNames: row.sourceIds.map(id => find(state, 'sources', id).name),
         templateName: find(state, 'templates', row.templateId).name,
+        baseName: find(state, 'bases', row.baseId).name,
+        nameserverNames: row.nameserverIds.map(id => find(state, 'nameservers', id).name),
         ...this.packageInfo([...new Set(row.sourceIds)].map(id => find(state, 'sources', id).cache?.userInfo))
       }))
     };
@@ -108,17 +106,32 @@ class Managed {
       fields = { name, url: url.href, userAgent };
     } else if (resource === 'templates') {
       fields = { name, content: validateTemplate(input.content) };
+    } else if (resource === 'bases') {
+      parseTemplate(input.content);
+      fields = { name, content: input.content };
+    } else if (resource === 'nameservers') {
+      const address = text(input.address, 'nameserver 地址', 8192);
+      if (/[\r\n]/.test(address)) throw new AppError('每条 nameserver 只能维护一个地址');
+      fields = { name, address };
     } else {
       if (!Array.isArray(input.sourceIds) || !input.sourceIds.length || input.sourceIds.length > 50 || input.sourceIds.some(v => typeof v !== 'string')) {
         throw new AppError('请选择 1–50 个第三方订阅源');
       }
-      fields = { name, sourceIds: [...new Set(input.sourceIds)], templateId: input.templateId };
+      if (!Array.isArray(input.nameserverIds) || input.nameserverIds.length > 50 || input.nameserverIds.some(id => typeof id !== 'string')) {
+        throw new AppError('请选择不超过 50 个 nameserver');
+      }
+      if (input.useSourceNameservers !== undefined && typeof input.useSourceNameservers !== 'boolean') throw new AppError('订阅源 nameserver 开关无效');
+      if (!input.useSourceNameservers && !input.nameserverIds.length) throw new AppError('请至少选择一个 nameserver');
+      fields = { name, sourceIds: [...new Set(input.sourceIds)], templateId: input.templateId,
+        baseId: input.baseId, nameserverIds: [...new Set(input.nameserverIds)], useSourceNameservers: input.useSourceNameservers ?? false };
     }
     return this.store.update(state => {
       const existing = id ? find(state, resource, id) : null;
       if (resource === 'subscriptions') {
         for (const sourceId of fields.sourceIds) find(state, 'sources', sourceId);
         find(state, 'templates', fields.templateId);
+        find(state, 'bases', fields.baseId);
+        for (const nameserverId of fields.nameserverIds) find(state, 'nameservers', nameserverId);
       }
       let changed = false;
       if (existing) {
@@ -143,7 +156,8 @@ class Managed {
     let cache;
     await this.store.update(state => {
       const record = find(state, resource, id);
-      if (resource !== 'subscriptions' && state.subscriptions.some(sub => resource === 'sources' ? sub.sourceIds.includes(id) : sub.templateId === id)) {
+      if (resource !== 'subscriptions' && state.subscriptions.some(sub => resource === 'sources' ? sub.sourceIds.includes(id)
+        : resource === 'bases' ? sub.baseId === id : resource === 'nameservers' ? sub.nameserverIds.includes(id) : sub.templateId === id)) {
         throw new AppError('记录正在被系统订阅引用，请先调整关联', 409);
       }
       cache = record.cache;
@@ -158,7 +172,7 @@ class Managed {
     if (!record.cache) return null;
     try {
       const content = await readFile(join(this.store.directory, record.cache.file), 'utf8');
-      if (record.cache.file.endsWith('.yaml')) return { proxies: parseSubscription(content), content };
+      if (record.cache.file.endsWith('.yaml')) return { ...parseSubscriptionDocument(content), content };
       const proxies = JSON.parse(content);
       return Array.isArray(proxies) && proxies.length && proxies.every(proxy => proxy && typeof proxy.type === 'string' && proxy.type.trim())
         ? { proxies, content: null } : null;
@@ -215,20 +229,20 @@ class Managed {
       const cached = await this.cached(source);
       const current = find(this.store.read(), 'sources', id);
       if (current.revision !== source.revision || current.cache?.file !== source.cache?.file) continue;
-      return { source, proxies: cached?.proxies ?? null, content: cached?.content ?? null };
+      return { source, proxies: cached?.proxies ?? null, content: cached?.content ?? null, nameservers: cached?.nameservers ?? [] };
     }
     throw new AppError('来源正在更新，请重试', 409);
   }
 
   async sourceContent(id) {
-    let { source, proxies } = await this.currentSource(id);
+    let { source, proxies, nameservers } = await this.currentSource(id);
     if (proxies !== null && (this.status(source) === 'valid' || this.inflight.get(id)?.revision === source.revision)) {
-      return { proxies, userInfo: source.cache?.userInfo ?? null, revision: source.revision, stale: this.status(source) !== 'valid' };
+      return { proxies, nameservers, userInfo: source.cache?.userInfo ?? null, revision: source.revision, stale: this.status(source) !== 'valid' };
     }
     let failure;
     try { await this.refresh(id); } catch (error) { failure = error; }
-    ({ source, proxies } = await this.currentSource(id));
-    if (proxies !== null) return { proxies, userInfo: source.cache?.userInfo ?? null, revision: source.revision, stale: Boolean(failure) || this.status(source) !== 'valid' };
+    ({ source, proxies, nameservers } = await this.currentSource(id));
+    if (proxies !== null) return { proxies, nameservers, userInfo: source.cache?.userInfo ?? null, revision: source.revision, stale: Boolean(failure) || this.status(source) !== 'valid' };
     throw failure || new AppError('来源缓存不可用，请重试更新', 502);
   }
 
@@ -247,6 +261,8 @@ class Managed {
 
   configuration(state, sub) {
     return JSON.stringify([sub.sourceIds, sub.templateId, find(state, 'templates', sub.templateId).content,
+      sub.baseId, find(state, 'bases', sub.baseId).content, sub.useSourceNameservers, sub.nameserverIds,
+      sub.nameserverIds.map(id => find(state, 'nameservers', id).address),
       sub.sourceIds.map(id => find(state, 'sources', id).revision)]);
   }
 
@@ -266,7 +282,9 @@ class Managed {
       if (failed) throw failed.reason;
       const sources = results.map(result => result.value);
       if (sources.some((result, index) => result.revision !== find(snapshot, 'sources', sourceIds[index]).revision)) continue;
-      const template = YAML.parse(find(latest, 'templates', current.templateId).content);
+      const nameservers = chooseNameservers(current.useSourceNameservers, sources.map(result => result.nameservers),
+        current.nameserverIds.map(id => find(latest, 'nameservers', id).address));
+      const template = composeTemplate(find(latest, 'bases', current.baseId).content, find(latest, 'templates', current.templateId).content, nameservers);
       const body = YAML.stringify(transformConfig(template, sources.map(result => result.proxies)), { lineWidth: 0 });
       return { name: current.name, body, stale: sources.some(result => result.stale), ...this.packageInfo(sources.map(result => result.userInfo)) };
     }

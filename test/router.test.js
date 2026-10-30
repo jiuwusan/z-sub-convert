@@ -5,7 +5,7 @@ const { resolveRoute, hashFor } = require('../public/router');
 
 test('resolves deep links and normalizes unknown hashes to the subscription page', () => {
   const session = { initialized: true, authenticated: true };
-  for (const name of ['subscriptions', 'sources', 'templates']) {
+  for (const name of ['subscriptions', 'sources', 'bases', 'nameservers', 'templates']) {
     assert.deepEqual(resolveRoute(`#/${name}`, session), { name, hash: `#/${name}`, returnTo: name });
   }
   for (const hash of ['', '#/missing', '#/sources/extra', '#/%ZZ']) {

@@ -101,7 +101,7 @@ function createAdminHandler({ managed, auth, store, now = Date.now }) {
       json(200, { results: await managed.refreshAll() });
       return;
     }
-    const match = /^\/api\/(sources|templates|subscriptions)(?:\/([a-zA-Z0-9-]+))?(\/(?:refresh|preview|download))?$/.exec(path);
+    const match = /^\/api\/(sources|bases|nameservers|templates|subscriptions)(?:\/([a-zA-Z0-9-]+))?(\/(?:refresh|preview|download))?$/.exec(path);
     if (!match) throw new AppError('接口不存在', 404);
     const [, resource, id, action] = match;
     if (action === '/download') {

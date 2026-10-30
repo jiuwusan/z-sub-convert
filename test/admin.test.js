@@ -6,6 +6,7 @@ const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 const { once } = require('node:events');
 const { createApp } = require('../server');
+const YAML = require('yaml');
 
 async function fixture(t, dataDir, upstreamHeaders = {}) {
   if (!dataDir) {
@@ -54,7 +55,7 @@ test('initializes without key, protects management with auth/CSRF and supports c
   const state = await (await f.request('/api/state')).json();
   assert.doesNotMatch(JSON.stringify(state), /secret/);
   assert.doesNotMatch(JSON.stringify(state), /hash|salt/);
-  response = await f.request('/api/subscriptions', 'POST', { name: '测试订阅', sourceIds: [source.id], templateId: state.templates[0].id });
+  response = await f.request('/api/subscriptions', 'POST', { name: '测试订阅', sourceIds: [source.id], baseId: state.bases[0].id, nameserverIds: state.nameservers.map(row => row.id), templateId: state.templates[0].id });
   assert.equal(response.status, 201);
   const sub = await response.json();
   assert.equal((await fetch(`${f.base}/sub?key=${sub.key}`, { method: 'HEAD' })).status, 200);
@@ -75,7 +76,7 @@ test('initializes without key, protects management with auth/CSRF and supports c
   assert.equal((await f.request(`/api/subscriptions/${sub.id}/refresh`, 'POST', {})).status, 404);
   assert.equal((await f.request('/api/refresh-all', 'POST', {})).status, 404);
   assert.equal((await f.request(`/api/sources/${source.id}`)).status, 200);
-  assert.equal((await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { name: '改名', sourceIds: [source.id], templateId: state.templates[0].id })).status, 200);
+  assert.equal((await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { name: '改名', sourceIds: [source.id], baseId: state.bases[0].id, nameserverIds: state.nameservers.map(row => row.id), templateId: state.templates[0].id })).status, 200);
   assert.equal((await f.request('/api/reset', 'POST', { key: 'wrong', username: 'new-admin', password: 'password123' })).status, 403);
   assert.equal((await f.request('/api/reset', 'POST', { key: 'this-boot-key', username: 'new-admin', password: 'password123' })).status, 200);
   assert.equal((await fetch(f.base + '/api/state', { headers: { cookie: session.cookie } })).status, 401);
@@ -117,7 +118,7 @@ test('downloads full source caches and generated subscriptions with name-timesta
   assert.equal(sourceFilename, '第三方来源-1793155200123.yaml');
   assert.deepEqual(Buffer.from(await original.arrayBuffer()), Buffer.from(f.upstreamBody));
   const state = await (await f.request('/api/state')).json();
-  const sub = await (await f.request('/api/subscriptions', 'POST', { name: '系统订阅', sourceIds: [source.id], templateId: state.templates[0].id })).json();
+  const sub = await (await f.request('/api/subscriptions', 'POST', { name: '系统订阅', sourceIds: [source.id], baseId: state.bases[0].id, nameserverIds: state.nameservers.map(row => row.id), templateId: state.templates[0].id })).json();
   const subPath = `/api/subscriptions/${sub.id}/download`;
   assert.equal((await fetch(f.base + subPath)).status, 401);
   const generated = await f.request(subPath);
@@ -128,7 +129,7 @@ test('downloads full source caches and generated subscriptions with name-timesta
   assert.equal(decodeURIComponent(publicSub.headers.get('content-disposition').split("filename*=UTF-8''")[1]), '系统订阅-1793155200123.yaml');
   assert.equal(f.upstreamCalls(), 1);
   const untouched = await (await f.request('/api/sources', 'POST', { name: '未更新来源', url: 'https://provider.example/unfetched' })).json();
-  const lazy = await (await f.request('/api/subscriptions', 'POST', { name: '尚未访问', sourceIds: [untouched.id], templateId: state.templates[0].id })).json();
+  const lazy = await (await f.request('/api/subscriptions', 'POST', { name: '尚未访问', sourceIds: [untouched.id], baseId: state.bases[0].id, nameserverIds: state.nameservers.map(row => row.id), templateId: state.templates[0].id })).json();
   for (const path of [sourcePath, subPath, `/api/subscriptions/${lazy.id}/download`, `/sub?key=${lazy.key}`]) {
     const result = await f.request(path, 'HEAD');
     assert.equal(result.status, 200);
@@ -157,7 +158,7 @@ test('public and authenticated downloads expose cached package headers on GET an
   const createSource = async name => (await f.request('/api/sources', 'POST', { name, url: `https://provider.example/${name}` })).json();
   const first = await createSource('first'); const second = await createSource('second'); const empty = await createSource('empty');
   const state = await (await f.request('/api/state')).json();
-  const createSub = async sourceIds => (await f.request('/api/subscriptions', 'POST', { name: '套餐订阅', sourceIds, templateId: state.templates[0].id })).json();
+  const createSub = async sourceIds => (await f.request('/api/subscriptions', 'POST', { name: '套餐订阅', sourceIds, baseId: state.bases[0].id, nameserverIds: state.nameservers.map(row => row.id), templateId: state.templates[0].id })).json();
   const sub = await createSub([first.id, second.id, first.id, empty.id]);
   const head = await f.request(`/sub?key=${sub.key}`, 'HEAD');
   assert.equal(head.headers.get('subscription-userinfo'), null);
@@ -187,4 +188,38 @@ test('public and authenticated downloads expose cached package headers on GET an
   await f.request(`/api/sources/${first.id}/refresh`, 'POST', {});
   await f.request(`/api/sources/${second.id}/refresh`, 'POST', {});
   assert.equal((await f.request(`/sub?key=${sub.key}`)).headers.get('subscription-userinfo'), null);
+});
+
+test('manages three independent parts and uses selected manual DNS as source-mode fallback', async t => {
+  const f = await fixture(t);
+  await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' }); await f.login();
+  const create = async (resource, body) => {
+    const response = await f.request(`/api/${resource}`, 'POST', body);
+    assert.equal(response.status, 201);
+    return response.json();
+  };
+  const base = await create('bases', { name: '基础', content: 'mixed-port: 8899\ndns: {enable: true, nameserver: [ignored]}' });
+  const ns = await create('nameservers', { name: '备用', address: 'https://dns.google/dns-query#🚀 节点选择' });
+  const state = await (await f.request('/api/state')).json();
+  const ruleContent = (await (await f.request(`/api/templates/${state.templates[0].id}`)).json()).content;
+  const rule = await create('templates', { name: '规则', content: ruleContent });
+  assert.equal((await f.request('/api/templates', 'POST', { name: '坏规则', content: 'proxies: []\nproxy-groups: []\nrules: []' })).status, 400);
+  assert.equal((await f.request('/api/bases', 'POST', { name: '语法错误', content: '[' })).status, 400);
+  const source = await create('sources', { name: '来源', url: 'https://provider.example/sub' });
+  const sub = await create('subscriptions', { name: '拆分订阅', baseId: base.id, templateId: rule.id, sourceIds: [source.id], useSourceNameservers: true, nameserverIds: [ns.id] });
+  assert.equal(f.upstreamCalls(), 0);
+  const result = YAML.parse(await (await f.request(`/sub?key=${sub.key}`)).text());
+  assert.equal(result['mixed-port'], 8899);
+  assert.deepEqual(result.dns.nameserver, [ns.address]);
+  assert.match(result.proxies[0].name, /美国/);
+  for (const [resource,id] of [['bases', base.id], ['nameservers', ns.id], ['templates', rule.id]]) {
+    assert.equal((await f.request(`/api/${resource}/${id}`, 'DELETE')).status, 409);
+  }
+  const edited = await f.request(`/api/nameservers/${ns.id}`, 'PATCH', { ...ns, address: '1.1.1.1' });
+  assert.equal(edited.status, 200);
+  assert.deepEqual(YAML.parse(await (await f.request(`/sub?key=${sub.key}`)).text()).dns.nameserver, ['1.1.1.1']);
+  assert.equal(f.upstreamCalls(), 1);
+  await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...sub, nameserverIds: [] });
+  const missing = await f.request(`/sub?key=${sub.key}`);
+  assert.equal(missing.status, 422); assert.match((await missing.json()).error, /nameserver/);
 });
