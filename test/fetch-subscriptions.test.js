@@ -30,6 +30,31 @@ async function listen(t, handler) {
   return `http://127.0.0.1:${port}`;
 }
 
+test('reads package headers and the full body from one GET using the configured user-agent', async t => {
+  let calls = 0;
+  const base = await listen(t, (request, response) => {
+    calls++;
+    assert.equal(request.method, 'GET');
+    assert.equal(request.headers['user-agent'], 'custom-agent');
+    response.writeHead(200, { 'Subscription-Userinfo': 'upload=1; download=2; total=100; expire=1900000000' });
+    response.end('proxies: [{name: US, type: ss}]\n');
+  });
+  const result = await fetchSubscriptionDocument(new URL(base + '/sub?token=test'), { userAgent: 'custom-agent' });
+  assert.deepEqual(result.userInfo, { upload: '1', download: '2', total: '100', expire: '1900000000' });
+  assert.equal(result.content, 'proxies: [{name: US, type: ss}]\n');
+  assert.equal(calls, 1);
+});
+
+test('missing or invalid package headers never reject a valid subscription body', async () => {
+  for (const header of [null, 'total=-1; upload=no']) {
+    const result = await fetchSubscriptionDocument(new URL('https://provider.example/sub'), {
+      fetchImpl: async () => new Response('proxies: [{type: ss}]', { headers: header ? { 'subscription-userinfo': header } : {} })
+    });
+    assert.equal(result.userInfo, null);
+    assert.equal(result.proxies.length, 1);
+  }
+});
+
 test('splits pipe-separated HTTP URLs and rejects invalid input', () => {
   const urls = splitSubscriptionUrls('https://one.example/sub|http://two.example/sub');
   assert.deepEqual(urls.map(String), [

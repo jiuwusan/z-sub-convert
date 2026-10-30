@@ -4,7 +4,7 @@ const $ = selector => document.querySelector(selector);
 const state = { tab: 'subscriptions', data: { sources: [], templates: [], subscriptions: [] }, csrf: '', mode: 'login', initialized: false, authenticated: false, ready: false, route: '', returnTo: 'subscriptions', navigation: 0, editing: null, previewContent: '', previewSourceId: null, refreshing: new Set(), allBusy: false };
 const labels = {
   subscriptions: { title: '系统订阅', list: '全部订阅', add: '新增订阅', description: '使用第三方来源缓存和所选模板生成专属订阅链接。', heads: ['订阅名称', '第三方来源 / 模板', '操作'] },
-  sources: { title: '第三方订阅源', list: '全部来源', add: '新增来源', description: '维护并更新第三方来源，缓存结果供所有关联订阅复用。', heads: ['来源名称', '订阅链接摘要 / User-Agent', '关联订阅', '缓存状态', '最近更新成功', '最近更新结果', '操作'] },
+  sources: { title: '第三方订阅源', list: '全部来源', add: '新增来源', description: '维护并更新第三方来源，缓存结果供所有关联订阅复用。', heads: ['来源名称', '订阅链接摘要 / User-Agent', '关联订阅', '套餐信息', '缓存状态', '最近更新成功', '最近更新结果', '操作'] },
   templates: { title: '订阅模板', list: '全部模板', add: '新增模板', description: '维护转换模板，为每份系统订阅选择合适的配置。', heads: ['模板名称', '关联订阅', '操作'] }
 };
 const cacheLabels = { empty: '无缓存', valid: '缓存有效', expired: '已过期', invalidated: '待更新' };
@@ -144,6 +144,32 @@ function cacheMessage(message) {
   return message.replace(/^刷新(?=成功|失败)/, '更新');
 }
 
+function formatBytes(value) {
+  if (value === undefined) return '—';
+  const bytes = Number(value);
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB'];
+  const index = bytes > 0 ? Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1) : 0;
+  return `${Number((bytes / 1024 ** index).toFixed(index ? 2 : 0))} ${units[index]}`;
+}
+
+function packageCell(info) {
+  if (!info) return node('span', 'muted', '未提供');
+  const details = node('div', 'package-info');
+  let remaining;
+  if (info.total !== undefined && info.upload !== undefined && info.download !== undefined) {
+    remaining = BigInt(info.total) - BigInt(info.upload) - BigInt(info.download);
+    remaining = (remaining > 0n ? remaining : 0n).toString();
+  }
+  const unlimited = info.total === '0';
+  const expiry = info.expire === undefined ? '—' : info.expire === '0' ? '长期有效' : new Date(Number(info.expire) * 1000).toLocaleDateString('zh-CN');
+  for (const [label, value] of [['总量', unlimited ? '无限' : formatBytes(info.total)], ['剩余', unlimited ? '无限' : formatBytes(remaining)], ['到期', expiry]]) {
+    const line = node('div', 'package-line');
+    line.append(node('span', 'muted', label), document.createTextNode(value));
+    details.append(line);
+  }
+  return details;
+}
+
 function render() {
   const tab = state.tab;
   const config = labels[tab];
@@ -171,7 +197,7 @@ function render() {
   $('#table-body').replaceChildren();
   $('#empty').hidden = data[tab].length > 0;
   $('#total-label').textContent = `共 ${data[tab].length} 条记录`;
-  $('#cache-hint').textContent = tab === 'sources' ? '来源缓存有效期 23 小时 · 支持手动更新' : tab === 'templates' ? '模板修改后重新生成结果，无需更新来源' : '关联订阅共享来源缓存 · 按当前模板生成';
+  $('#cache-hint').textContent = tab === 'sources' ? '正文与套餐共享 2 小时缓存 · 支持手动更新' : tab === 'templates' ? '模板修改后重新生成结果，无需更新来源' : '关联订阅共享来源缓存 · 按当前模板生成';
   $('#list-hint').textContent = tab === 'templates' ? '模板在保存时校验，修改后自动应用到关联订阅' : tab === 'sources' ? '来源独立缓存，更新成功后所有关联订阅使用新数据' : '需要更新第三方数据时，请到来源列表更新';
   const needsSource = tab === 'subscriptions' && !data.sources.length;
   $('#empty-title').textContent = tab === 'subscriptions' ? '创建你的第一份订阅' : tab === 'sources' ? '添加第一个第三方来源' : '创建你的订阅模板';
@@ -187,12 +213,15 @@ function render() {
       const sources = node('div');
       for (const name of record.sourceNames) sources.append(node('span', 'tag', name));
       sources.append(node('small', 'subline', record.templateName));
+      const coverage = record.packageCoverage;
+      if (coverage) sources.append(node('small', 'subline package-coverage', `套餐信息覆盖 ${coverage.available}/${coverage.total} 个来源`));
       cell(row, sources);
     } else if (tab === 'sources') {
       const summary = node('div', '', record.urlSummary);
       summary.append(node('small', 'subline', record.userAgent));
       cell(row, summary);
       cell(row, `${data.subscriptions.filter(sub => sub.sourceIds.includes(record.id)).length} 份订阅`);
+      cell(row, packageCell(record.userInfo));
       const refreshing = state.refreshing.has(record.id) || record.refreshing || state.allBusy;
       cell(row, node('span', `badge ${refreshing ? 'refreshing' : record.cacheStatus}`, refreshing ? '更新中…' : cacheLabels[record.cacheStatus]));
       cell(row, formatTime(record.lastSuccessAt));

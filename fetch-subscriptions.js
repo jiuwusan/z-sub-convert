@@ -1,6 +1,7 @@
 'use strict';
 
 const YAML = require('yaml');
+const { parseUserinfo } = require('./userinfo');
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
@@ -109,6 +110,7 @@ async function fetchSubscriptionDocument(url, options = {}) {
 
   try {
     const response = await fetchImpl(url, {
+      method: 'GET',
       headers: { 'user-agent': options.userAgent ?? 'clash-verge/v2.4.5' },
       signal: AbortSignal.timeout(timeoutMs)
     });
@@ -116,7 +118,7 @@ async function fetchSubscriptionDocument(url, options = {}) {
       throw new SubscriptionError(`Upstream subscription returned HTTP ${response.status}`, 502);
     }
     const content = await readBoundedBody(response, maxBytes);
-    return { content, proxies: parseSubscription(content) };
+    return { content, proxies: parseSubscription(content), userInfo: parseUserinfo(response.headers.get('subscription-userinfo')) };
   } catch (error) {
     if (error instanceof SubscriptionError) throw error;
     if (error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {

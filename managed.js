@@ -7,8 +7,9 @@ const YAML = require('yaml');
 const { AppError } = require('./auth');
 const { fetchSubscriptionDocument, parseSubscription, SubscriptionError } = require('./fetch-subscriptions');
 const { transformConfig } = require('./transform');
+const { aggregateUserinfo } = require('./userinfo');
 
-const CACHE_MS = 23 * 60 * 60 * 1000;
+const CACHE_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_AGENT = 'clash-verge/v2.4.5';
 const RESOURCES = ['sources', 'templates', 'subscriptions'];
 
@@ -64,15 +65,30 @@ class Managed {
     const state = this.store.read();
     return {
       sources: state.sources.map(({ url, cache, ...row }) => ({
-        ...row, urlSummary: summarizeUrl(url), cacheStatus: this.status({ ...row, cache }), refreshing: this.inflight.has(row.id)
+        ...row, urlSummary: summarizeUrl(url), cacheStatus: this.status({ ...row, cache }), refreshing: this.inflight.has(row.id),
+        userInfo: cache?.userInfo ?? null
       })),
       templates: state.templates.map(({ content, ...row }) => row),
       subscriptions: state.subscriptions.map(row => ({
         ...row,
         sourceNames: row.sourceIds.map(id => find(state, 'sources', id).name),
-        templateName: find(state, 'templates', row.templateId).name
+        templateName: find(state, 'templates', row.templateId).name,
+        ...this.packageInfo([...new Set(row.sourceIds)].map(id => find(state, 'sources', id).cache?.userInfo))
       }))
     };
+  }
+
+  packageInfo(items) {
+    const { userInfo, coverage } = aggregateUserinfo(items);
+    return { userInfo, packageCoverage: coverage };
+  }
+
+  subscriptionInfo(id) {
+    const state = this.store.read();
+    const sub = find(state, 'subscriptions', id);
+    const sources = [...new Set(sub.sourceIds)].map(sourceId => find(state, 'sources', sourceId));
+    return { name: sub.name, ...this.packageInfo(sources.map(source => source.cache?.userInfo)),
+      stale: sources.some(source => this.status(source) !== 'valid') };
   }
 
   async save(resource, input, id) {
@@ -168,14 +184,14 @@ class Managed {
     let file;
     let previous;
     try {
-      const { content } = await fetchSubscriptionDocument(new URL(source.url), { ...this.options, userAgent: source.userAgent });
+      const { content, userInfo } = await fetchSubscriptionDocument(new URL(source.url), { ...this.options, userAgent: source.userAgent });
       file = `source-cache-${randomUUID()}.yaml`;
       await writeFile(join(this.store.directory, file), content, { encoding: 'utf8', mode: 0o600 });
       await this.store.update(state => {
         const record = find(state, 'sources', source.id);
         if (record.revision !== source.revision) throw new AppError('配置已变更，请重试更新', 409);
         previous = record.cache?.file;
-        record.cache = { file, revision: source.revision };
+        record.cache = { file, revision: source.revision, userInfo };
         record.lastSuccessAt = this.now();
         record.lastResult = { ok: true, message: '更新成功', at: this.now() };
       });
@@ -207,12 +223,12 @@ class Managed {
   async sourceContent(id) {
     let { source, proxies } = await this.currentSource(id);
     if (proxies !== null && (this.status(source) === 'valid' || this.inflight.get(id)?.revision === source.revision)) {
-      return { proxies, revision: source.revision, stale: this.status(source) !== 'valid' };
+      return { proxies, userInfo: source.cache?.userInfo ?? null, revision: source.revision, stale: this.status(source) !== 'valid' };
     }
     let failure;
     try { await this.refresh(id); } catch (error) { failure = error; }
     ({ source, proxies } = await this.currentSource(id));
-    if (proxies !== null) return { proxies, revision: source.revision, stale: Boolean(failure) || this.status(source) !== 'valid' };
+    if (proxies !== null) return { proxies, userInfo: source.cache?.userInfo ?? null, revision: source.revision, stale: Boolean(failure) || this.status(source) !== 'valid' };
     throw failure || new AppError('来源缓存不可用，请重试更新', 502);
   }
 
@@ -224,6 +240,7 @@ class Managed {
       lastSuccessAt: source.lastSuccessAt,
       proxyCount: proxies?.length || 0,
       content,
+      userInfo: proxies === null ? null : source.cache?.userInfo ?? null,
       requiresUpdate: proxies !== null && content === null
     };
   }
@@ -239,7 +256,8 @@ class Managed {
       const sub = snapshot.subscriptions.find(row => row.key === key);
       if (!sub) throw new AppError('订阅不存在', 404);
       const configuration = this.configuration(snapshot, sub);
-      const results = await Promise.allSettled(sub.sourceIds.map(id => this.sourceContent(id)));
+      const sourceIds = [...new Set(sub.sourceIds)];
+      const results = await Promise.allSettled(sourceIds.map(id => this.sourceContent(id)));
       const latest = this.store.read();
       const current = latest.subscriptions.find(row => row.key === key);
       if (!current) throw new AppError('订阅不存在', 404);
@@ -247,10 +265,10 @@ class Managed {
       const failed = results.find(result => result.status === 'rejected');
       if (failed) throw failed.reason;
       const sources = results.map(result => result.value);
-      if (sources.some((result, index) => result.revision !== find(snapshot, 'sources', sub.sourceIds[index]).revision)) continue;
+      if (sources.some((result, index) => result.revision !== find(snapshot, 'sources', sourceIds[index]).revision)) continue;
       const template = YAML.parse(find(latest, 'templates', current.templateId).content);
       const body = YAML.stringify(transformConfig(template, sources.map(result => result.proxies)), { lineWidth: 0 });
-      return { name: current.name, body, stale: sources.some(result => result.stale) };
+      return { name: current.name, body, stale: sources.some(result => result.stale), ...this.packageInfo(sources.map(result => result.userInfo)) };
     }
     throw new AppError('配置已变更，请重试', 409);
   }

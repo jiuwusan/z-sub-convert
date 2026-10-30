@@ -14,21 +14,24 @@ async function fixture(t) {
   const options = { directory, templatePath: join(__dirname, '../prds/template.yaml') };
   const store = await Store.open(options);
   let now = 100000, fail = false, hold = null, generation = 1;
+  const packages = {};
   const calls = [];
   const service = new Managed(store, { now: () => now, fetchImpl: async (url, init) => {
     calls.push({ url: String(url), agent: init.headers['user-agent'] });
     if (hold) await hold;
     if (fail && String(url).includes('two')) return new Response('', { status: 503 });
-    return new Response(YAML.stringify({ proxies: [{ name: String(url).includes('two') ? 'JP' : 'US', type: 'ss', server: `node-${generation}.example`, port: 443 }] }));
+    const packageHeader = packages[String(url).includes('two') ? 'two' : 'one'];
+    return new Response(YAML.stringify({ proxies: [{ name: String(url).includes('two') ? 'JP' : 'US', type: 'ss', server: `node-${generation}.example`, port: 443 }] }), { headers: packageHeader ? { 'subscription-userinfo': packageHeader } : {} });
   } });
   const one = await service.save('sources', { name: '来源一', url: 'https://source.test/one?token=secret', userAgent: 'custom-agent' });
   const two = await service.save('sources', { name: '来源二', url: 'https://source.test/two' });
   const sub = await service.save('subscriptions', { name: '合并订阅', sourceIds: [one.id, two.id], templateId: store.read().templates[0].id });
-  return { store, service, sub, one, two, options, calls, tick: v => { now += v; }, fail: () => { fail = true; }, generation: v => { generation = v; }, hold: v => { hold = v; } };
+  return { store, service, sub, one, two, options, calls, packages, tick: v => { now += v; }, fail: () => { fail = true; }, generation: v => { generation = v; }, hold: v => { hold = v; } };
 }
 const sourceState = (f, id) => f.service.list().sources.find(row => row.id === id);
 
-test('shares raw source caches across subscriptions and restart, uses per-source UA and expires at 23 hours', async t => {
+test('shares raw source caches across subscriptions and restart, uses per-source UA and expires at 2 hours', async t => {
+  assert.equal(CACHE_MS, 2 * 60 * 60 * 1000);
   const f = await fixture(t);
   const second = await f.service.save('subscriptions', { name: '另一份订阅', sourceIds: [f.one.id], templateId: f.sub.templateId });
   assert.equal(f.calls.length, 0);
@@ -45,6 +48,71 @@ test('shares raw source caches across subscriptions and restart, uses per-source
   const restarted = new Managed(await Store.open(f.options), { now: () => 100000 + CACHE_MS, fetchImpl: () => { restartedCalls++; throw Error('must use persisted cache'); } });
   assert.equal((await restarted.content(second.key)).body, shared.body);
   assert.equal(restartedCalls, 0);
+});
+
+test('persists package info with the same body cache and two-hour lifetime across restart and sharing', async t => {
+  const f = await fixture(t);
+  f.packages.one = 'upload=10; download=20; total=100; expire=1800000000';
+  f.packages.two = 'upload=1; download=2; total=200; expire=1900000000';
+  const result = await f.service.content(f.sub.key);
+  assert.deepEqual(result.userInfo, { upload: '11', download: '22', total: '300', expire: '1900000000' });
+  assert.deepEqual(result.packageCoverage, { available: 2, total: 2 });
+  assert.equal(sourceState(f, f.one.id).userInfo.total, '100');
+  assert.equal(f.service.list().subscriptions[0].userInfo.total, '300');
+  assert.equal((await f.service.preview(f.one.id)).userInfo.total, '100');
+  const second = await f.service.save('subscriptions', { name: '重复选择', sourceIds: [f.one.id, f.one.id], templateId: f.sub.templateId });
+  const restarted = new Managed(await Store.open(f.options), { now: () => 100000, fetchImpl: () => { throw Error('cached only'); } });
+  assert.equal((await restarted.content(second.key)).userInfo.total, '100');
+  f.packages.one = 'total=500';
+  f.tick(2 * 60 * 60 * 1000 - 1);
+  assert.equal((await f.service.content(second.key)).userInfo.total, '100');
+  assert.equal(f.calls.length, 2);
+  f.tick(1);
+  assert.deepEqual((await f.service.content(second.key)).userInfo, { total: '500' });
+  assert.equal(f.calls.length, 3, 'a single GET updates body and package together');
+});
+
+test('failed refresh retains matching package/body/timestamp and missing headers clear old package on success', async t => {
+  const f = await fixture(t);
+  f.packages.one = 'total=100'; f.packages.two = 'total=200';
+  await f.service.content(f.sub.key);
+  const old = f.store.read().sources.find(row => row.id === f.two.id);
+  f.fail(); f.tick(CACHE_MS); f.packages.one = null; f.packages.two = 'total=900';
+  const result = await f.service.content(f.sub.key);
+  assert.equal(result.stale, true);
+  assert.deepEqual(result.userInfo, { total: '200' });
+  assert.deepEqual(result.packageCoverage, { available: 1, total: 2 });
+  assert.equal(sourceState(f, f.one.id).userInfo, null);
+  assert.equal(sourceState(f, f.two.id).lastSuccessAt, old.lastSuccessAt);
+  assert.deepEqual(f.store.read().sources.find(row => row.id === f.two.id).cache, old.cache);
+  assert.deepEqual(f.service.list().subscriptions[0].packageCoverage, { available: 1, total: 2 });
+});
+
+test('package info follows legacy caches, configuration edits and atomic file/metadata write failures', async t => {
+  const f = await fixture(t);
+  f.packages.one = 'total=100';
+  await f.service.refresh(f.one.id);
+  const original = f.store.read().sources.find(row => row.id === f.one.id).cache;
+  f.packages.one = 'total=500';
+  const directory = f.store.directory;
+  f.store.directory = join(directory, 'missing');
+  await assert.rejects(f.service.refresh(f.one.id)); f.store.directory = directory;
+  assert.deepEqual(f.store.read().sources.find(row => row.id === f.one.id).cache, original);
+  const metadataPath = f.store.path; const blocked = join(directory, 'blocked-package'); await mkdir(blocked);
+  f.store.path = blocked; await assert.rejects(f.service.refresh(f.one.id)); f.store.path = metadataPath;
+  assert.deepEqual(f.store.read().sources.find(row => row.id === f.one.id).cache, original);
+  let release; f.hold(new Promise(resolve => { release = resolve; }));
+  const pending = f.service.refresh(f.one.id);
+  await new Promise(resolve => setImmediate(resolve));
+  await f.service.save('sources', { ...f.one, userAgent: 'new-agent' }, f.one.id);
+  release(); await assert.rejects(pending, /配置已变更/);
+  assert.deepEqual(f.store.read().sources.find(row => row.id === f.one.id).cache, original);
+  f.hold(null); await f.service.refresh(f.one.id);
+  assert.equal(sourceState(f, f.one.id).userInfo.total, '500');
+  await f.store.update(state => { delete state.sources.find(row => row.id === f.one.id).cache.userInfo; });
+  assert.equal(sourceState(f, f.one.id).userInfo, null);
+  assert.equal(f.service.subscriptionInfo(f.sub.id).userInfo, null);
+  assert.equal(f.service.subscriptionInfo(f.sub.id).packageCoverage.available, 0);
 });
 
 test('managed URL with a pipe remains a single source', async t => {

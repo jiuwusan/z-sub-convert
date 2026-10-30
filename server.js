@@ -136,11 +136,11 @@ function createApp(options = {}) {
         if (headOnly) {
           const sub = context.store.read().subscriptions.find(row => row.key === key);
           if (!sub) throw new AppError('订阅不存在', 404);
-          sendDownload(response, { name: sub.name, content: '', timestamp: now(), headOnly: true });
+          sendDownload(response, { ...context.managed.subscriptionInfo(sub.id), content: '', timestamp: now(), headOnly: true });
           return;
         }
         const result = await context.managed.content(key);
-        sendDownload(response, { name: result.name, content: result.body, timestamp: now(), stale: result.stale });
+        sendDownload(response, { name: result.name, content: result.body, timestamp: now(), stale: result.stale, userInfo: result.userInfo });
         return;
       }
       const proxyLists = await fetchSubscriptions(requestUrl.searchParams.get('url'), {

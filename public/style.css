@@ -504,6 +504,17 @@ td:last-child,th:last-child {
   color:#6a7d6d;
   margin:2px 4px 2px 0
 }
+.package-info {
+  font-size:11px;
+  line-height:1.8
+}
+.package-line {
+  display:flex;
+  gap:9px
+}
+.package-coverage {
+  max-width:none
+}
 .badge {
   font-size:10px;
   padding:4px 7px;

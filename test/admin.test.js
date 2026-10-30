@@ -7,14 +7,14 @@ const { tmpdir } = require('node:os');
 const { once } = require('node:events');
 const { createApp } = require('../server');
 
-async function fixture(t, dataDir) {
+async function fixture(t, dataDir, upstreamHeaders = {}) {
   if (!dataDir) {
     dataDir = await mkdtemp(join(tmpdir(), 'managed-api-'));
     t.after(() => rm(dataDir, { recursive: true, force: true }));
   }
   let upstreamCalls = 0;
   const upstreamBody = '\uFEFF# provider result\r\ndns: {enable: true}\r\nproxies:\r\n  - name: US test\r\n    type: ss\r\n    server: test.example\r\n    port: 443\r\nproxy-groups: []\r\nrules: ["MATCH,DIRECT"]\r\n';
-  const app = createApp({ dataDir, now: () => 1793155200123, resetKey: 'this-boot-key', logger: { error() {} }, fetchImpl: async () => { upstreamCalls++; return new Response(upstreamBody); } });
+  const app = createApp({ dataDir, now: () => 1793155200123, resetKey: 'this-boot-key', logger: { error() {} }, fetchImpl: async () => { upstreamCalls++; return new Response(upstreamBody, { headers: upstreamHeaders }); } });
   app.listen(0, '127.0.0.1');
   await once(app, 'listening');
   t.after(() => new Promise(resolve => { app.close(resolve); app.closeAllConnections(); }));
@@ -147,4 +147,44 @@ test('downloads full source caches and generated subscriptions with name-timesta
   assert.equal(legacyDownload.status, 409);
   assert.match((await legacyDownload.json()).error, /旧缓存/);
   assert.equal(f.upstreamCalls(), 1);
+});
+
+test('public and authenticated downloads expose cached package headers on GET and HEAD without extra fetches', async t => {
+  const headers = { 'subscription-userinfo': 'upload=1; download=2; total=100; expire=1800000000' };
+  const f = await fixture(t, undefined, headers);
+  await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' });
+  await f.login();
+  const createSource = async name => (await f.request('/api/sources', 'POST', { name, url: `https://provider.example/${name}` })).json();
+  const first = await createSource('first'); const second = await createSource('second'); const empty = await createSource('empty');
+  const state = await (await f.request('/api/state')).json();
+  const createSub = async sourceIds => (await f.request('/api/subscriptions', 'POST', { name: '套餐订阅', sourceIds, templateId: state.templates[0].id })).json();
+  const sub = await createSub([first.id, second.id, first.id, empty.id]);
+  const head = await f.request(`/sub?key=${sub.key}`, 'HEAD');
+  assert.equal(head.headers.get('subscription-userinfo'), null);
+  assert.equal(f.upstreamCalls(), 0);
+  await f.request(`/api/sources/${first.id}/refresh`, 'POST', {});
+  headers['subscription-userinfo'] = 'upload=3; download=4; total=200; expire=1900000000';
+  await f.request(`/api/sources/${second.id}/refresh`, 'POST', {});
+  delete headers['subscription-userinfo'];
+  await f.request(`/api/sources/${empty.id}/refresh`, 'POST', {});
+  const expected = 'upload=4; download=6; total=300; expire=1900000000';
+  for (const method of ['GET', 'HEAD']) {
+    for (const path of [`/sub?key=${sub.key}`, `/api/subscriptions/${sub.id}/download`]) {
+      const result = await f.request(path, method);
+      assert.equal(result.status, 200);
+      assert.equal(result.headers.get('subscription-userinfo'), expected);
+      assert.match(result.headers.get('content-disposition'), /1793155200123/);
+      if (method === 'HEAD') assert.equal(await result.text(), '');
+    }
+    const source = await f.request(`/api/sources/${first.id}/download`, method);
+    assert.equal(source.headers.get('subscription-userinfo'), 'upload=1; download=2; total=100; expire=1800000000');
+  }
+  assert.equal(f.upstreamCalls(), 3);
+  const current = await (await f.request('/api/state')).json();
+  assert.deepEqual(current.subscriptions[0].packageCoverage, { available: 2, total: 3 });
+  assert.equal(current.sources[0].userInfo.total, '100');
+  assert.doesNotMatch(JSON.stringify(current), /source-cache-/);
+  await f.request(`/api/sources/${first.id}/refresh`, 'POST', {});
+  await f.request(`/api/sources/${second.id}/refresh`, 'POST', {});
+  assert.equal((await f.request(`/sub?key=${sub.key}`)).headers.get('subscription-userinfo'), null);
 });
