@@ -218,6 +218,7 @@ function render() {
     const recordName = node('strong', 'record-name', record.name);
     recordName.title = record.name;
     title.append(recordName);
+    if (tab === 'sources') title.append(node('small', 'subline', record.updateMode === 'manual' ? '仅手动更新' : '自动更新'));
     cell(row, title);
     if (tab === 'subscriptions') {
       const sources = node('div');
@@ -320,7 +321,11 @@ async function edit(resource, id) {
   if (resource === 'sources') {
     fields.append(field('第三方订阅链接', 'url', record.url, { type: 'url', maxLength: 8192, placeholder: 'https://example.com/subscribe?token=…' }).label);
     fields.append(field('User-Agent', 'userAgent', record.userAgent ?? 'clash-verge/v2.4.5', { maxLength: 512 }).label);
+    const mode = node('label', 'source-option');
+    const manual = node('input'); manual.type = 'checkbox'; manual.name = 'manualUpdate'; manual.checked = record.updateMode === 'manual';
+    mode.append(manual, node('span', '', '仅手动更新')); fields.append(mode);
     fields.append(node('p', 'field-help', '列表将隐藏链接中的令牌；保存仅维护配置，不拉取第三方内容。'));
+    fields.append(node('p', 'field-help', '不勾选时自动更新：无缓存或缓存失效时，访问系统订阅按需拉取。勾选后仅使用已有缓存，过期也不自动拉取；无缓存时提示先手动更新。两种模式均可执行“更新”和“全部更新”。'));
   } else if (resource === 'nameservers') {
     fields.append(field('DNS 地址', 'address', record.address, { maxLength: 8192, placeholder: 'https://dns.google/dns-query#🚀 节点选择' }).label);
     fields.append(node('p', 'field-help', '每条一个地址，完整保留 # 后的内容。选择引用的分组时，请与规则模板保持一致。'));
@@ -593,7 +598,7 @@ $('#editor-form').addEventListener('submit', async event => {
     const { resource, id } = state.editing;
     const form = new FormData(event.target);
     const body = { name: form.get('name') };
-    if (resource === 'sources') Object.assign(body, { url: form.get('url'), userAgent: form.get('userAgent') });
+    if (resource === 'sources') Object.assign(body, { url: form.get('url'), userAgent: form.get('userAgent'), updateMode: form.has('manualUpdate') ? 'manual' : 'auto' });
     else if (['bases', 'templates'].includes(resource)) body.content = form.get('content');
     else if (resource === 'nameservers') body.address = form.get('address');
     else {

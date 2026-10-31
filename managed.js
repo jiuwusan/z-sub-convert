@@ -46,7 +46,7 @@ class Managed {
     if (!RESOURCES.includes(resource)) throw new AppError('记录类型不存在', 404);
     const record = find(this.store.read(), resource, id);
     const { cache, ...safe } = record;
-    return safe;
+    return resource === 'sources' ? { ...safe, updateMode: safe.updateMode ?? 'auto' } : safe;
   }
 
   status(record) {
@@ -59,7 +59,7 @@ class Managed {
     const state = this.store.read();
     return {
       sources: state.sources.map(({ url, cache, ...row }) => ({
-        ...row, urlSummary: summarizeUrl(url), cacheStatus: this.status({ ...row, cache }), refreshing: this.inflight.has(row.id),
+        ...row, updateMode: row.updateMode ?? 'auto', urlSummary: summarizeUrl(url), cacheStatus: this.status({ ...row, cache }), refreshing: this.inflight.has(row.id),
         userInfo: cache?.userInfo ?? null
       })),
       templates: state.templates.map(({ content, ...row }) => row),
@@ -103,6 +103,7 @@ class Managed {
       }
       const userAgent = text(input.userAgent ?? DEFAULT_AGENT, 'User-Agent', 512);
       if (!/^[\x20-\x7e]+$/.test(userAgent)) throw new AppError('User-Agent 只能包含可打印 ASCII 字符');
+      if (input.updateMode !== undefined && !['auto', 'manual'].includes(input.updateMode)) throw new AppError('更新模式须为自动更新或仅手动更新');
       fields = { name, url: url.href, userAgent };
     } else if (resource === 'templates') {
       fields = { name, content: validateTemplate(input.content) };
@@ -127,6 +128,7 @@ class Managed {
     }
     return this.store.update(state => {
       const existing = id ? find(state, resource, id) : null;
+      if (resource === 'sources') fields.updateMode = input.updateMode ?? existing?.updateMode ?? 'auto';
       if (resource === 'subscriptions') {
         for (const sourceId of fields.sourceIds) find(state, 'sources', sourceId);
         find(state, 'templates', fields.templateId);
@@ -190,6 +192,7 @@ class Managed {
 
   refresh(id, trigger = 'manual') {
     const source = find(this.store.read(), 'sources', id);
+    if (trigger === 'on-demand' && source.updateMode === 'manual') throw new AppError(`来源“${source.name}”为仅手动更新，请手动更新`, 409);
     const current = this.inflight.get(id);
     if (current?.revision === source.revision) return current.promise;
     const job = { revision: source.revision };
@@ -244,7 +247,7 @@ class Managed {
       const source = find(this.store.read(), 'sources', id);
       const cached = await this.cached(source);
       const current = find(this.store.read(), 'sources', id);
-      if (current.revision !== source.revision || current.cache?.file !== source.cache?.file) continue;
+      if (current.revision !== source.revision || current.cache?.file !== source.cache?.file || (current.updateMode ?? 'auto') !== (source.updateMode ?? 'auto')) continue;
       return { source, proxies: cached?.proxies ?? null, content: cached?.content ?? null, nameservers: cached?.nameservers ?? [] };
     }
     throw new AppError('来源正在更新，请重试', 409);
@@ -252,9 +255,10 @@ class Managed {
 
   async sourceContent(id) {
     let { source, proxies, nameservers } = await this.currentSource(id);
-    if (proxies !== null && (this.status(source) === 'valid' || this.inflight.get(id)?.revision === source.revision)) {
+    if (proxies !== null && (source.updateMode === 'manual' || this.status(source) === 'valid' || this.inflight.get(id)?.revision === source.revision)) {
       return { proxies, nameservers, userInfo: source.cache?.userInfo ?? null, revision: source.revision, stale: this.status(source) !== 'valid' };
     }
+    if (source.updateMode === 'manual') throw new AppError(`来源“${source.name}”为仅手动更新，暂无可用缓存，请先手动更新`, 409);
     let failure;
     try { await this.refresh(id, 'on-demand'); } catch (error) { failure = error; }
     ({ source, proxies, nameservers } = await this.currentSource(id));
@@ -279,7 +283,7 @@ class Managed {
     return JSON.stringify([sub.sourceIds, sub.templateId, find(state, 'templates', sub.templateId).content,
       sub.baseId, find(state, 'bases', sub.baseId).content, sub.useSourceNameservers, sub.nameserverIds,
       sub.nameserverIds.map(id => find(state, 'nameservers', id).address),
-      sub.sourceIds.map(id => find(state, 'sources', id).revision)]);
+      sub.sourceIds.map(id => { const source = find(state, 'sources', id); return [source.revision, source.updateMode ?? 'auto']; })]);
   }
 
   async content(key) {

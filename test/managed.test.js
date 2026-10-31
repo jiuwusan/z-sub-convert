@@ -354,3 +354,62 @@ test('uses the latest manual address and base selection when edited during a sou
   assert.deepEqual(output.dns.nameserver, ['tls://latest.example']);
   assert.equal(f.calls.length, 2);
 });
+
+test('source update modes default to auto, persist and survive edits that omit the mode', async t => {
+  const f = await fixture(t);
+  assert.equal(f.one.updateMode, 'auto');
+  await f.service.save('sources', { ...f.one, updateMode: 'manual' }, f.one.id);
+  await f.service.save('sources', { name: '改名', url: f.one.url, userAgent: f.one.userAgent }, f.one.id);
+  assert.equal(f.service.get('sources', f.one.id).updateMode, 'manual');
+  const reopened = new Managed(await Store.open(f.options));
+  assert.equal(reopened.list().sources.find(row => row.id === f.one.id).updateMode, 'manual');
+  await f.store.update(state => { delete state.sources.find(row => row.id === f.two.id).updateMode; });
+  assert.equal(f.service.get('sources', f.two.id).updateMode, 'auto');
+  assert.equal(sourceState(f, f.two.id).updateMode, 'auto');
+  for (const updateMode of ['invalid', null, true]) await assert.rejects(f.service.save('sources', { ...f.one, updateMode }, f.one.id), /更新模式/);
+});
+
+test('manual sources never fetch on access but retain old caches and allow explicit and refresh-all requests', async t => {
+  const f = await fixture(t);
+  await f.service.save('sources', { ...f.one, updateMode: 'manual' }, f.one.id);
+  const sub = await f.service.save('subscriptions', { ...f.sub, name: '仅手动', sourceIds: [f.one.id] });
+  await assert.rejects(f.service.content(sub.key), /仅手动更新.*手动更新/);
+  assert.equal(f.calls.length, 0);
+  await f.service.refresh(f.one.id);
+  const before = f.store.read().sources.find(row => row.id === f.one.id);
+  f.tick(CACHE_MS);
+  const stale = await f.service.content(sub.key);
+  assert.equal(stale.stale, true); assert.equal(f.calls.length, 1);
+  assert.match(stale.body, /node-1.example/);
+  await f.service.save('sources', { ...f.one, updateMode: 'manual', userAgent: 'changed-agent' }, f.one.id);
+  assert.equal((await f.service.content(sub.key)).body, stale.body);
+  let denied = 0;
+  f.service.options.fetchImpl = async () => { denied++; return new Response('', { status: 403 }); };
+  await assert.rejects(f.service.refresh(f.one.id), /HTTP 403/);
+  assert.equal(denied, 1);
+  assert.equal(sourceState(f, f.one.id).lastSuccessAt, before.lastSuccessAt);
+  assert.equal((await f.service.content(sub.key)).body, stale.body); assert.equal(denied, 1);
+  assert.equal((await f.service.refreshAll()).filter(row => !row.ok).length, 2);
+  assert.equal(denied, 3, 'refresh-all includes manual sources');
+  await f.service.save('sources', { ...f.one, updateMode: 'auto', userAgent: 'changed-agent' }, f.one.id);
+  await f.service.content(sub.key); await f.service.content(sub.key);
+  assert.equal(denied, 5, 'automatic retry behavior is unchanged regardless of upstream status');
+});
+
+test('switching mode preserves cache metadata and lets an already started refresh finish', async t => {
+  const f = await fixture(t);
+  const sub = await f.service.save('subscriptions', { ...f.sub, sourceIds: [f.one.id] });
+  let release; f.hold(new Promise(resolve => { release = resolve; }));
+  const pending = f.service.content(sub.key);
+  await new Promise(resolve => setImmediate(resolve));
+  await f.service.save('sources', { ...f.one, updateMode: 'manual' }, f.one.id);
+  release(); await pending;
+  const original = f.store.read().sources.find(row => row.id === f.one.id);
+  assert.equal(original.updateMode, 'manual');
+  assert.equal(f.calls.length, 1);
+  await f.service.save('sources', { ...f.one, updateMode: 'auto' }, f.one.id);
+  const switched = f.store.read().sources.find(row => row.id === f.one.id);
+  assert.deepEqual(switched.cache, original.cache);
+  assert.equal(switched.lastSuccessAt, original.lastSuccessAt);
+  assert.equal(switched.revision, original.revision);
+});

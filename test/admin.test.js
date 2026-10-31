@@ -422,3 +422,30 @@ test('source refresh records preserve the attempted UA after configuration races
   assert.equal(context.managed.list().sources[0].cacheStatus, 'valid');
   assert.equal((await context.sourceRecords.list(source.id)).total, 1);
 });
+
+test('manual update mode is configurable through source APIs and never fetches on subscription access', async t => {
+  const f = await fixture(t);
+  await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' }); await f.login();
+  const state = await (await f.request('/api/state')).json();
+  const created = await f.request('/api/sources', 'POST', { name: '仅手动来源', url: 'https://provider.example/sub', updateMode: 'manual' });
+  const source = await created.json();
+  assert.equal(source.updateMode, 'manual');
+  const sub = await (await f.request('/api/subscriptions', 'POST', { name: '仅手动订阅', sourceIds: [source.id], baseId: state.bases[0].id, templateId: state.templates[0].id, nameserverIds: state.nameservers.map(row => row.id) })).json();
+  const empty = await f.request(`/sub?key=${sub.key}`);
+  assert.equal(empty.status, 409); assert.match((await empty.json()).error, /仅手动更新/);
+  assert.equal(f.upstreamCalls(), 0);
+  assert.equal((await (await f.request(`/api/sources/${source.id}/updates`)).json()).total, 0);
+  assert.equal((await f.request(`/api/sources/${source.id}/refresh`, 'POST', {})).status, 200);
+  assert.equal(f.upstreamCalls(), 1);
+  const context = await f.app.ready;
+  context.managed.now = () => 1793155200123 + 2 * 60 * 60 * 1000;
+  const cached = await f.request(`/sub?key=${sub.key}`);
+  assert.equal(cached.status, 200); assert.equal(cached.headers.get('x-subscription-cache'), 'stale');
+  assert.match(await cached.text(), /美国/); assert.equal(f.upstreamCalls(), 1);
+  assert.equal((await (await f.request('/api/state')).json()).sources[0].updateMode, 'manual');
+  await f.request(`/api/sources/${source.id}`, 'PATCH', { ...source, updateMode: 'auto' });
+  const automatic = await f.request(`/sub?key=${sub.key}`); await automatic.arrayBuffer();
+  assert.equal(f.upstreamCalls(), 2);
+  assert.equal((await (await f.request(`/api/sources/${source.id}/updates`)).json()).records[0].trigger, 'on-demand');
+  assert.equal((await f.request('/api/sources', 'POST', { name: '无效模式', url: source.url, updateMode: 'bad' })).status, 400);
+});
