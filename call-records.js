@@ -9,8 +9,9 @@ const PAGE_SIZE = 50;
 const FILE_PATTERN = /^([a-zA-Z0-9-]+)-(\d{4}-\d{2}-\d{2})\.jsonl$/;
 
 class CallRecords {
-  constructor(directory, { now = Date.now, isActive = () => true, logger = console } = {}) {
-    this.directory = join(directory, 'call-records');
+  constructor(directory, { now = Date.now, isActive = () => true, logger = console, directoryName = 'call-records' } = {}) {
+    if (!['call-records', 'source-refresh-records'].includes(directoryName)) throw new AppError('记录目录无效');
+    this.directory = join(directory, directoryName);
     this.now = now;
     this.isActive = isActive;
     this.logger = logger;
@@ -60,6 +61,7 @@ class CallRecords {
       const record = { id: randomUUID(), at: input.at, method: input.method, ip: clean(input.ip), userAgent: clean(input.userAgent),
         status: input.status, durationMs: Number.isFinite(input.durationMs) ? Math.max(0, Math.round(input.durationMs)) : 0,
         error: input.error ? clean(input.error) : null };
+      if (['on-demand', 'manual', 'all'].includes(input.trigger)) record.trigger = input.trigger;
       await mkdir(this.directory, { recursive: true, mode: 0o700 });
       const file = `${id}-${new Date(record.at).toISOString().slice(0, 10)}.jsonl`;
       // Leading newline isolates a partial final line left by an interrupted append.

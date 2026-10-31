@@ -37,7 +37,7 @@ function checkOrigin(request) {
   throw new AppError('请求来源不允许', 403);
 }
 
-function createAdminHandler({ managed, auth, store, callRecords, now = Date.now }) {
+function createAdminHandler({ managed, auth, store, callRecords, sourceRecords, now = Date.now }) {
   const attempts = new Map();
   function rateLimit(request, path) {
     const now = Date.now();
@@ -101,13 +101,14 @@ function createAdminHandler({ managed, auth, store, callRecords, now = Date.now 
       json(200, { results: await managed.refreshAll() });
       return;
     }
-    const match = /^\/api\/(sources|bases|nameservers|templates|subscriptions)(?:\/([a-zA-Z0-9-]+))?(\/(?:refresh|preview|download|calls))?$/.exec(path);
+    const match = /^\/api\/(sources|bases|nameservers|templates|subscriptions)(?:\/([a-zA-Z0-9-]+))?(\/(?:refresh|preview|download|calls|updates))?$/.exec(path);
     if (!match) throw new AppError('接口不存在', 404);
     const [, resource, id, action] = match;
-    if (action === '/calls') {
-      if (resource !== 'subscriptions' || !id || method !== 'GET') throw new AppError('接口不存在', 404);
+    if (action === '/calls' || action === '/updates') {
+      const sourceHistory = action === '/updates';
+      if (resource !== (sourceHistory ? 'sources' : 'subscriptions') || !id || method !== 'GET') throw new AppError('接口不存在', 404);
       managed.get(resource, id);
-      json(200, await callRecords.list(id, Number(url.searchParams.get('page') ?? 1)));
+      json(200, await (sourceHistory ? sourceRecords : callRecords).list(id, Number(url.searchParams.get('page') ?? 1)));
     } else if (action === '/download') {
       if (!id || !['GET', 'HEAD'].includes(method)) throw new AppError('接口不存在', 404);
       if (resource === 'bases' || resource === 'templates') {

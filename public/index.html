@@ -87,15 +87,15 @@
     <footer class="dialog-footer"><button id="download-preview" class="secondary" type="button">下载</button><button id="copy-preview" class="secondary" type="button">复制内容</button><button id="done-preview" class="primary" type="button">完成</button></footer>
   </dialog>
   <dialog id="calls-dialog" aria-labelledby="calls-title">
-    <header class="dialog-heading"><div><span class="eyebrow">系统订阅</span><h2 id="calls-title">调用记录</h2><p id="calls-name" class="muted"></p></div><button id="close-calls" class="icon-button" type="button" aria-label="关闭调用记录">×</button></header>
+    <header class="dialog-heading"><div><span id="calls-kind" class="eyebrow">系统订阅</span><h2 id="calls-title">调用记录</h2><p id="calls-name" class="muted"></p></div><button id="close-calls" class="icon-button" type="button" aria-label="关闭调用记录">×</button></header>
     <div class="calls-tools"><span id="calls-summary" class="muted"></span><button id="calls-reload" class="secondary" type="button">刷新</button></div>
     <div class="calls-content">
       <p id="calls-loading" class="muted" role="status" hidden>正在加载…</p>
       <p id="calls-error" class="error" role="alert" hidden></p>
       <p id="calls-empty" class="muted" hidden>最近 3 天暂无调用记录</p>
-      <table id="calls-table"><thead><tr><th>调用时间</th><th>方法</th><th>来源 IP</th><th>User-Agent</th><th>状态</th><th>耗时</th><th>错误信息</th></tr></thead><tbody id="calls-rows"></tbody></table>
+      <table id="calls-table"><thead><tr id="calls-columns"></tr></thead><tbody id="calls-rows"></tbody></table>
     </div>
-    <footer class="dialog-footer calls-footer"><span class="hint">仅记录公开链接的 GET / HEAD；后台下载不计入。超过 72 小时自动清理。</span><div><button id="calls-prev" class="secondary" type="button">上一页</button><button id="calls-next" class="secondary" type="button">下一页</button></div></footer>
+    <footer class="dialog-footer calls-footer"><span id="calls-note" class="hint"></span><div><button id="calls-prev" class="secondary" type="button">上一页</button><button id="calls-next" class="secondary" type="button">下一页</button></div></footer>
   </dialog>
   <div id="toast" class="toast" role="status" hidden></div>
 </body>

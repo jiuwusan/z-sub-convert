@@ -167,6 +167,9 @@ class Managed {
     if (resource === 'subscriptions' && this.options.callRecords) {
       await this.options.callRecords.remove(id).catch(() => this.options.logger?.error('Unable to remove subscription call records'));
     }
+    if (resource === 'sources' && this.options.sourceRecords) {
+      await this.options.sourceRecords.remove(id).catch(() => this.options.logger?.error('Unable to remove source refresh records'));
+    }
   }
 
   async discard(file) { await unlink(join(this.store.directory, file)).catch(() => {}); }
@@ -185,21 +188,24 @@ class Managed {
     }
   }
 
-  refresh(id) {
+  refresh(id, trigger = 'manual') {
     const source = find(this.store.read(), 'sources', id);
     const current = this.inflight.get(id);
     if (current?.revision === source.revision) return current.promise;
     const job = { revision: source.revision };
-    job.promise = this.performRefresh(source).finally(() => {
+    job.promise = this.performRefresh(source, trigger).finally(() => {
       if (this.inflight.get(id) === job) this.inflight.delete(id);
     });
     this.inflight.set(id, job);
     return job.promise;
   }
 
-  async performRefresh(source) {
+  async performRefresh(source, trigger) {
     let file;
     let previous;
+    const at = this.now();
+    const started = performance.now();
+    const outcome = { status: 200, error: null };
     try {
       const { content, userInfo } = await fetchSubscriptionDocument(new URL(source.url), { ...this.options, userAgent: source.userAgent });
       file = `source-cache-${randomUUID()}.yaml`;
@@ -217,12 +223,19 @@ class Managed {
     } catch (error) {
       if (file) await this.discard(file);
       const message = error instanceof SubscriptionError || error instanceof AppError ? error.message : '更新失败，请稍后重试';
+      outcome.status = error instanceof SubscriptionError || error instanceof AppError ? error.statusCode : 502;
+      outcome.error = message;
       await this.store.update(state => {
         const record = state.sources.find(row => row.id === source.id);
         if (record?.revision === source.revision) record.lastResult = { ok: false, message, at: this.now() };
       });
       if (error instanceof SubscriptionError || error instanceof AppError) throw error;
       throw new AppError(message, 502);
+    } finally {
+      if (this.options.sourceRecords) {
+        this.options.sourceRecords.append(source.id, { at, method: 'GET', trigger, userAgent: source.userAgent,
+          ...outcome, durationMs: performance.now() - started }).catch(() => this.options.logger?.error('Unable to save source refresh record'));
+      }
     }
   }
 
@@ -243,7 +256,7 @@ class Managed {
       return { proxies, nameservers, userInfo: source.cache?.userInfo ?? null, revision: source.revision, stale: this.status(source) !== 'valid' };
     }
     let failure;
-    try { await this.refresh(id); } catch (error) { failure = error; }
+    try { await this.refresh(id, 'on-demand'); } catch (error) { failure = error; }
     ({ source, proxies, nameservers } = await this.currentSource(id));
     if (proxies !== null) return { proxies, nameservers, userInfo: source.cache?.userInfo ?? null, revision: source.revision, stale: Boolean(failure) || this.status(source) !== 'valid' };
     throw failure || new AppError('来源缓存不可用，请重试更新', 502);
@@ -301,7 +314,7 @@ class Managed {
     await Promise.all(Array.from({ length: Math.min(3, items.length) }, async () => {
       while (next < items.length) {
         const index = next++;
-        try { results[index] = await this.refresh(items[index].id); }
+        try { results[index] = await this.refresh(items[index].id, 'all'); }
         catch (error) { results[index] = { id: items[index].id, name: items[index].name, ok: false, message: error.message }; }
       }
     }));

@@ -73,10 +73,13 @@ function createApp(options = {}) {
   const ready = dataDir ? Store.open({ directory: dataDir, templatePath }).then(async store => {
     const auth = new Auth(store, { resetKey: options.resetKey, now });
     const callRecords = new CallRecords(dataDir, { now, logger, isActive: id => store.read().subscriptions.some(sub => sub.id === id) });
+    const sourceRecords = new CallRecords(dataDir, { now, logger, directoryName: 'source-refresh-records', isActive: id => store.read().sources.some(source => source.id === id) });
     await callRecords.cleanup().catch(() => logger.error('Unable to clean subscription call records'));
+    await sourceRecords.cleanup().catch(() => logger.error('Unable to clean source refresh records'));
     callRecords.start();
-    const managed = new Managed(store, { ...options, callRecords, logger, now, timeoutMs, maxBytes });
-    return { store, auth, managed, callRecords, admin: createAdminHandler({ store, auth, managed, callRecords, now }) };
+    sourceRecords.start();
+    const managed = new Managed(store, { ...options, callRecords, sourceRecords, logger, now, timeoutMs, maxBytes });
+    return { store, auth, managed, callRecords, sourceRecords, admin: createAdminHandler({ store, auth, managed, callRecords, sourceRecords, now }) };
   }) : Promise.resolve(null);
   ready.catch(() => {}); // Request/startup paths report initialization failures.
   const assets = {
@@ -193,7 +196,7 @@ function createApp(options = {}) {
       sendJson(response, statusCode, { error: message }, headOnly);
     }
   });
-  server.once('close', () => { ready.then(context => context?.callRecords.close()).catch(() => {}); });
+  server.once('close', () => { ready.then(context => context && Promise.all([context.callRecords.close(), context.sourceRecords.close()])).catch(() => {}); });
   server.ready = ready;
   return server;
 }

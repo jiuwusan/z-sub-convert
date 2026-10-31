@@ -10,6 +10,10 @@ const labels = {
   templates: { title: '规则模板', list: '全部规则模板', add: '新增规则模板', description: '维护 proxies、proxy-groups 和 rules，保存时检查必要分组。', heads: ['模板名称', '关联订阅', '操作'] }
 };
 const cacheLabels = { empty: '无缓存', valid: '缓存有效', expired: '已过期', invalidated: '待更新' };
+const historyViews = {
+  subscriptions: { title: '调用记录', kind: '系统订阅', endpoint: 'calls', heads: ['调用时间', '方法', '来源 IP', 'User-Agent', '状态', '耗时', '错误信息'], empty: '最近 3 天暂无调用记录', note: '仅记录公开链接的 GET / HEAD；后台下载不计入。超过 72 小时自动清理。' },
+  sources: { title: '缓存更新记录', kind: '第三方订阅源', endpoint: 'updates', heads: ['更新时间', '更新方式', 'User-Agent', '结果', '耗时', '错误信息'], empty: '最近 3 天暂无缓存更新记录', note: '记录实际更新；命中缓存、预览和来源下载不计入。超过 72 小时自动清理。' }
+};
 let toastTimer;
 
 function node(tag, className, text) {
@@ -275,6 +279,8 @@ function render() {
       action(actions, '下载', () => downloadRecord(tab, record.id));
       const refresh = action(actions, '更新', () => refreshOne(record));
       refresh.disabled = state.refreshing.has(record.id) || state.allBusy || record.refreshing;
+      const updates = action(actions, '记录', () => showCalls(record, 'sources'));
+      updates.title = '查看缓存更新记录'; updates.setAttribute('aria-label', '查看缓存更新记录');
     }
     action(actions, '编辑', () => edit(tab, record.id));
     action(actions, '删除', async () => {
@@ -394,8 +400,15 @@ async function edit(resource, id) {
 
 function showEditorError(message) { $('#editor-error').textContent = message; $('#editor-error').hidden = false; }
 
-async function showCalls(record) {
-  state.calls = { id: record.id, page: 1, total: 0, pageSize: 50, request: 0 };
+async function showCalls(record, resource = 'subscriptions') {
+  const config = historyViews[resource];
+  state.calls = { id: record.id, resource, page: 1, total: 0, pageSize: 50, request: 0 };
+  $('#calls-title').textContent = config.title;
+  $('#calls-kind').textContent = config.kind;
+  $('#close-calls').setAttribute('aria-label', `关闭${config.title}`);
+  $('#calls-empty').textContent = config.empty;
+  $('#calls-note').textContent = config.note;
+  $('#calls-columns').replaceChildren(...config.heads.map(title => node('th', '', title)));
   $('#calls-name').textContent = record.name;
   $('#calls-rows').replaceChildren();
   $('#calls-summary').textContent = '正在加载最近 3 天的记录…';
@@ -418,7 +431,7 @@ async function loadCalls(page) {
   $('#calls-error').hidden = true;
   $('#calls-loading').hidden = false;
   try {
-    const result = await api(`/subscriptions/${view.id}/calls?page=${page}`);
+    const result = await api(`/${view.resource}/${view.id}/${historyViews[view.resource].endpoint}?page=${page}`);
     if (!current()) return;
     const lastPage = Math.max(1, Math.ceil(result.total / result.pageSize));
     if (result.page > lastPage) { await loadCalls(lastPage); return; }
@@ -426,10 +439,14 @@ async function loadCalls(page) {
     $('#calls-rows').replaceChildren();
     for (const record of result.records) {
       const row = node('tr');
-      cell(row, formatTime(record.at)); cell(row, record.method); cell(row, record.ip || '—');
+      cell(row, formatTime(record.at));
+      if (view.resource === 'sources') cell(row, ({ 'on-demand': '按需更新', manual: '手动更新', all: '全部更新' })[record.trigger] || '—');
+      else { cell(row, record.method); cell(row, record.ip || '—'); }
       const agent = node('div', 'calls-detail', record.userAgent || '—'); agent.title = record.userAgent || '';
       cell(row, agent);
-      cell(row, node('span', record.status < 400 ? 'result-ok' : 'result-error', `${record.status}${record.status === 499 ? ' · 中断' : record.status < 400 ? ' · 成功' : ' · 失败'}`));
+      const status = view.resource === 'sources' ? record.status < 400 ? '更新成功' : '更新失败'
+        : `${record.status}${record.status === 499 ? ' · 中断' : record.status < 400 ? ' · 成功' : ' · 失败'}`;
+      cell(row, node('span', record.status < 400 ? 'result-ok' : 'result-error', status));
       cell(row, `${record.durationMs} ms`);
       cell(row, node('div', 'calls-detail', record.error || '—'));
       $('#calls-rows').append(row);

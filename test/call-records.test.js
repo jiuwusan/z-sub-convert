@@ -82,3 +82,14 @@ test('closing flushes records already queued before stopping new writes', async 
   const reopened = new CallRecords(f.directory, f.options);
   assert.equal((await reopened.list('one')).total, 1);
 });
+
+test('source-update journals are isolated and only retain known update triggers', async t => {
+  const f = await fixture(t);
+  const updates = new CallRecords(f.directory, { ...f.options, directoryName: 'source-refresh-records' });
+  await updates.append('one', { ...entry(f.now()), trigger: 'manual' });
+  assert.equal((await f.records.list('one')).total, 0);
+  assert.equal((await updates.list('one')).records[0].trigger, 'manual');
+  await updates.append('one', { ...entry(f.now()), trigger: 'secret-token' });
+  assert.equal((await updates.list('one')).records[0].trigger, undefined);
+  assert.throws(() => new CallRecords(f.directory, { directoryName: '../outside' }), /记录目录/);
+});
