@@ -21,7 +21,7 @@ async function copyHarness() {
     document: {
       querySelector(selector) {
         if (!elements.has(selector)) elements.set(selector, {
-          value: '', open: false, addEventListener() {},
+          value: '', open: false, listeners: {}, addEventListener(type, listener) { this.listeners[type] = listener; }, replaceChildren() {},
           close() { this.open = false; }, showModal() { this.open = true; }, select() { this.selected = true; }
         });
         return elements.get(selector);
@@ -50,4 +50,26 @@ test('clipboard fallback respects navigation/logout and still opens on the origi
       assert.equal(elements.get('#copy-url').selected, true);
     }
   }
+});
+
+test('late unauthorized call-history responses cannot log out a newer session', async () => {
+  const { context } = await copyHarness();
+  let respond;
+  context.fetch = () => new Promise(resolve => { respond = resolve; });
+  vm.runInContext('state.csrf = "old-session"; state.authenticated = true;', context);
+  const request = context.requestApi('/subscriptions/test/calls');
+  vm.runInContext('state.csrf = "new-session"; state.authenticated = true; state.navigation += 1;', context);
+  respond({ ok: false, status: 401, json: async () => ({ error: '请先登录' }) });
+  await assert.rejects(request, /请先登录/);
+  assert.equal(vm.runInContext('state.authenticated', context), true);
+  assert.equal(vm.runInContext('state.csrf', context), 'new-session');
+});
+
+test('a delayed close event cannot clear a newly reopened call-history view', async () => {
+  const { context, elements } = await copyHarness();
+  const dialog = elements.get('#calls-dialog');
+  vm.runInContext('state.calls = { id: "new-view" };', context);
+  dialog.open = true;
+  dialog.listeners.close();
+  assert.equal(vm.runInContext('state.calls?.id', context), 'new-view');
 });

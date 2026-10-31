@@ -7,6 +7,7 @@ const { tmpdir } = require('node:os');
 const { once } = require('node:events');
 const { createApp } = require('../server');
 const YAML = require('yaml');
+const http = require('node:http');
 
 async function fixture(t, dataDir, upstreamHeaders = {}) {
   if (!dataDir) {
@@ -252,4 +253,100 @@ test('downloads base and rule template originals with authentication and named t
   }
   assert.equal((await f.request(`/api/nameservers/${state.nameservers[0].id}/download`)).status, 404);
   assert.equal(f.upstreamCalls(), 0);
+});
+
+test('records public GET/HEAD successes and failures for 3 days while excluding admin downloads', async t => {
+  const f = await fixture(t);
+  await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' }); await f.login();
+  const state = await (await f.request('/api/state')).json();
+  const source = await (await f.request('/api/sources', 'POST', { name: '来源', url: 'https://provider.example/?token=private-token' })).json();
+  const selection = { sourceIds: [source.id], baseId: state.bases[0].id, templateId: state.templates[0].id, nameserverIds: state.nameservers.map(row => row.id) };
+  const sub = await (await f.request('/api/subscriptions', 'POST', { ...selection, name: '调用测试' })).json();
+  const path = `/api/subscriptions/${sub.id}/calls`;
+  assert.equal((await fetch(f.base + path)).status, 401);
+  assert.equal((await f.request(path)).status, 200);
+  assert.equal((await (await f.request(path)).json()).total, 0);
+  for (const method of ['GET', 'HEAD']) {
+    const response = await fetch(`${f.base}/sub?key=${sub.key}`, { method, headers: { 'user-agent': 'clash-test/v1', 'x-forwarded-for': '203.0.113.99' } });
+    assert.equal(response.status, 200); await response.arrayBuffer();
+  }
+  let calls = await (await f.request(path)).json();
+  assert.equal(calls.total, 2); assert.equal(calls.records[0].method, 'HEAD');
+  for (const row of calls.records) {
+    assert.equal(row.status, 200); assert.equal(row.userAgent, 'clash-test/v1'); assert.equal(row.ip, '127.0.0.1');
+    assert.ok(row.durationMs >= 0); assert.equal(row.error, null); assert.equal(row.at, 1793155200123);
+  }
+  for (const method of ['GET', 'HEAD']) {
+    const download = await f.request(`/api/subscriptions/${sub.id}/download`, method);
+    assert.equal(download.status, 200); await download.arrayBuffer();
+  }
+  assert.equal((await (await f.request(path)).json()).total, 2);
+  assert.equal((await f.request('/sub?key=invalid')).status, 404);
+  assert.equal((await (await f.request(path)).json()).total, 2);
+  await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...selection, name: '调用测试', useSourceNameservers: true, nameserverIds: [] });
+  assert.equal((await f.request(`/sub?key=${sub.key}`)).status, 422);
+  calls = await (await f.request(path)).json();
+  assert.equal(calls.records[0].status, 422); assert.match(calls.records[0].error, /nameserver/);
+  const context = await f.app.ready;
+  context.managed.options.fetchImpl = async () => new Response('', { status: 503 });
+  const failed = await (await f.request('/api/sources', 'POST', { name: '失败来源', url: 'https://fail.example/?token=other-private-token' })).json();
+  await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...selection, sourceIds: [failed.id], name: '调用测试' });
+  assert.equal((await f.request(`/sub?key=${sub.key}`, 'HEAD')).status, 200, 'HEAD still does not fetch upstream');
+  assert.equal((await f.request(`/sub?key=${sub.key}`)).status, 502);
+  calls = await (await f.request(path)).json();
+  assert.equal(calls.records[0].status, 502); assert.match(calls.records[0].error, /503/);
+  assert.equal(calls.total, 5);
+  assert.doesNotMatch(JSON.stringify(calls), new RegExp(`${sub.key}|private-token|provider.example|fail.example|"body"|"url"`));
+  assert.equal((await f.request(path + '?page=0')).status, 400);
+  assert.equal((await f.request('/api/subscriptions/missing/calls')).status, 404);
+  assert.equal((await f.request(`/api/sources/${source.id}/calls`)).status, 404);
+  await context.callRecords.append(sub.id, { at: 1793155200123 - 72 * 60 * 60 * 1000 - 1, method: 'GET', status: 200 });
+  assert.equal((await (await f.request(path)).json()).total, 5);
+  await f.request(`/api/subscriptions/${sub.id}`, 'DELETE');
+  assert.equal((await f.request(path)).status, 404);
+  assert.equal((await context.callRecords.list(sub.id)).total, 0);
+});
+
+test('call-record write failures do not fail public subscriptions', async t => {
+  const f = await fixture(t);
+  const context = await f.app.ready;
+  const source = await context.managed.save('sources', { name: '来源', url: 'https://provider.example/sub' });
+  const state = context.store.read();
+  const sub = await context.managed.save('subscriptions', { name: '记录失败', sourceIds: [source.id], baseId: state.bases[0].id, templateId: state.templates[0].id, nameserverIds: state.nameservers.map(row => row.id) });
+  const directory = context.callRecords.directory;
+  const blocked = join(f.dataDir, 'blocked-call-records'); await writeFile(blocked, 'blocked');
+  context.callRecords.directory = blocked;
+  const result = await f.request(`/sub?key=${sub.key}`);
+  assert.equal(result.status, 200); assert.match(await result.text(), /美国/);
+  context.callRecords.directory = directory;
+});
+
+test('slow call-record storage never holds a public response and aborted processing records 499', async t => {
+  const f = await fixture(t);
+  const context = await f.app.ready;
+  const source = await context.managed.save('sources', { name: '来源', url: 'https://provider.example/sub' });
+  const state = context.store.read();
+  const sub = await context.managed.save('subscriptions', { name: '中断测试', sourceIds: [source.id], baseId: state.bases[0].id, templateId: state.templates[0].id, nameserverIds: state.nameservers.map(row => row.id) });
+  let releaseQueue;
+  const blocking = context.callRecords.enqueue(sub.id, () => new Promise(resolve => { releaseQueue = resolve; }));
+  await new Promise(resolve => setImmediate(resolve));
+  const response = f.request(`/sub?key=${sub.key}`, 'HEAD');
+  const arrived = await Promise.race([response.then(() => true), new Promise(resolve => setTimeout(() => resolve(false), 150))]);
+  releaseQueue(); await blocking; await response;
+  assert.equal(arrived, true, 'logging must not delay the subscription response');
+  let upstreamStarted, releaseUpstream;
+  const started = new Promise(resolve => { upstreamStarted = resolve; });
+  context.managed.options.fetchImpl = async () => { upstreamStarted(); await new Promise(resolve => { releaseUpstream = resolve; }); return new Response(f.upstreamBody); };
+  const request = http.get(`${f.base}/sub?key=${sub.key}`);
+  request.on('error', () => {});
+  await started;
+  const closed = new Promise(resolve => request.once('close', resolve)); request.destroy(); await closed;
+  releaseUpstream();
+  let calls;
+  for (let i = 0; i < 50; i++) {
+    calls = await context.callRecords.list(sub.id);
+    if (calls.records.some(row => row.status === 499)) break;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.ok(calls.records.some(row => row.status === 499 && /断开/.test(row.error)));
 });

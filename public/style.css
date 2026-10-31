@@ -488,7 +488,7 @@ td:last-child,th:last-child {
 }
 .subscription-list table {
   table-layout:fixed;
-  min-width:900px
+  min-width:960px
 }
 .subscription-list th {
   padding:13px 16px
@@ -496,7 +496,7 @@ td:last-child,th:last-child {
 .subscription-list th:nth-child(1) { width:18% }
 .subscription-list th:nth-child(2) { width:20% }
 .subscription-list th:nth-child(3) { width:22% }
-.subscription-list th:last-child { width:200px; text-align:right }
+.subscription-list th:last-child { width:244px; text-align:right }
 .subscription-list td {
   padding:18px 16px;
   vertical-align:middle
@@ -911,6 +911,58 @@ dialog form {
   min-height:240px;
   flex-shrink:0;
   background:#f8faf8;
+}
+#calls-dialog {
+  width:min(1200px,calc(100% - 32px))
+}
+#calls-dialog[open] {
+  display:flex;
+  flex-direction:column
+}
+#calls-dialog .dialog-heading,#calls-dialog .dialog-footer,.calls-tools {
+  flex-shrink:0
+}
+#calls-name {
+  margin:8px 0 0;
+  font-size:12px;
+  overflow-wrap:anywhere
+}
+.calls-tools {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:14px 20px;
+  font-size:12px
+}
+.calls-content {
+  overflow:auto;
+  min-height:0;
+  padding:0 20px 16px
+}
+#calls-table {
+  min-width:940px
+}
+#calls-table td {
+  padding:12px;
+  vertical-align:top
+}
+.calls-detail {
+  min-width:120px;
+  max-width:260px;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  font-size:11px;
+  line-height:1.6
+}
+.calls-footer {
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap
+}
+.calls-footer>div {
+  display:flex;
+  gap:8px
 }
 @media(min-width:1500px) {
   .content {

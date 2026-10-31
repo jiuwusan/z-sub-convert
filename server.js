@@ -17,6 +17,7 @@ const { Auth, AppError } = require('./auth');
 const { Managed } = require('./managed');
 const { createAdminHandler } = require('./admin-api');
 const { sendDownload } = require('./download');
+const { CallRecords } = require('./call-records');
 
 class TemplateError extends Error {
   constructor(message, options) {
@@ -69,10 +70,13 @@ function createApp(options = {}) {
   const now = options.now || Date.now;
 
   const dataDir = options.dataDir || process.env.DATA_DIR;
-  const ready = dataDir ? Store.open({ directory: dataDir, templatePath }).then(store => {
+  const ready = dataDir ? Store.open({ directory: dataDir, templatePath }).then(async store => {
     const auth = new Auth(store, { resetKey: options.resetKey, now });
-    const managed = new Managed(store, { ...options, now, timeoutMs, maxBytes });
-    return { store, auth, managed, admin: createAdminHandler({ store, auth, managed, now }) };
+    const callRecords = new CallRecords(dataDir, { now, logger, isActive: id => store.read().subscriptions.some(sub => sub.id === id) });
+    await callRecords.cleanup().catch(() => logger.error('Unable to clean subscription call records'));
+    callRecords.start();
+    const managed = new Managed(store, { ...options, callRecords, logger, now, timeoutMs, maxBytes });
+    return { store, auth, managed, callRecords, admin: createAdminHandler({ store, auth, managed, callRecords, now }) };
   }) : Promise.resolve(null);
   ready.catch(() => {}); // Request/startup paths report initialization failures.
   const assets = {
@@ -85,6 +89,8 @@ function createApp(options = {}) {
     '/style.css': ['style.css', 'text/css; charset=utf-8']
   };
   const server = http.createServer(async (request, response) => {
+    const calledAt = now();
+    const started = performance.now();
     response.setHeader('x-content-type-options', 'nosniff');
     response.setHeader('referrer-policy', 'no-referrer');
     const requestUrl = new URL(request.url || '/', 'http://localhost');
@@ -128,14 +134,29 @@ function createApp(options = {}) {
       return;
     }
 
+    let invocation;
+    const recordCall = () => {
+      if (!invocation) return;
+      const { id, callRecords, ip, userAgent, error } = invocation;
+      invocation = null;
+      const disconnected = !response.writableFinished;
+      callRecords.append(id, { at: calledAt, method: request.method, ip, userAgent,
+        status: disconnected ? 499 : response.statusCode, error: disconnected ? '客户端断开连接' : error,
+        durationMs: performance.now() - started }).catch(() => logger.error('Unable to save subscription call record'));
+    };
     try {
       if (requestUrl.searchParams.has('key')) {
         const context = await ready;
         if (!context) throw new AppError('订阅不存在', 404);
         const key = requestUrl.searchParams.get('key');
+        const sub = context.store.read().subscriptions.find(row => row.key === key);
+        if (!sub) throw new AppError('订阅不存在', 404);
+        invocation = { id: sub.id, callRecords: context.callRecords, error: null,
+          ip: (request.socket.remoteAddress || '').replace(/^::ffff:/, ''), userAgent: request.headers['user-agent'] || '' };
+        response.once('finish', recordCall);
+        response.once('close', recordCall);
+        if (response.destroyed) recordCall();
         if (headOnly) {
-          const sub = context.store.read().subscriptions.find(row => row.key === key);
-          if (!sub) throw new AppError('订阅不存在', 404);
           sendDownload(response, { ...context.managed.subscriptionInfo(sub.id), content: '', timestamp: now(), headOnly: true });
           return;
         }
@@ -167,10 +188,12 @@ function createApp(options = {}) {
       const message = statusCode === 500 && !(error instanceof TemplateError)
         ? 'Internal server error'
         : error.message;
+      if (invocation) invocation.error = message;
       logger.error(`${error.name || 'Error'}: ${message}`);
       sendJson(response, statusCode, { error: message }, headOnly);
     }
   });
+  server.once('close', () => { ready.then(context => context?.callRecords.close()).catch(() => {}); });
   server.ready = ready;
   return server;
 }

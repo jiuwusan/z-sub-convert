@@ -1,7 +1,7 @@
 'use strict';
 
 const $ = selector => document.querySelector(selector);
-const state = { tab: 'subscriptions', data: { sources: [], bases: [], nameservers: [], templates: [], subscriptions: [] }, csrf: '', mode: 'login', initialized: false, authenticated: false, ready: false, route: '', returnTo: 'subscriptions', navigation: 0, editing: null, previewContent: '', previewSourceId: null, refreshing: new Set(), allBusy: false };
+const state = { tab: 'subscriptions', data: { sources: [], bases: [], nameservers: [], templates: [], subscriptions: [] }, csrf: '', mode: 'login', initialized: false, authenticated: false, ready: false, route: '', returnTo: 'subscriptions', navigation: 0, editing: null, calls: null, previewContent: '', previewSourceId: null, refreshing: new Set(), allBusy: false };
 const labels = {
   subscriptions: { title: '系统订阅', list: '全部订阅', add: '新增订阅', description: '组合来源、基础模板、DNS 和规则模板，生成专属订阅链接。', heads: ['订阅名称', '第三方来源', '模板配置', 'DNS 配置', '操作'] },
   sources: { title: '第三方订阅源', list: '全部来源', add: '新增来源', description: '维护并更新第三方来源，缓存结果供所有关联订阅复用。', heads: ['来源名称', '订阅链接摘要 / User-Agent', '关联订阅', '套餐信息', '缓存状态', '最近更新成功', '最近更新结果', '操作'] },
@@ -27,6 +27,8 @@ function toast(message) {
 }
 
 async function requestApi(path, method = 'GET', body) {
+  const session = state.csrf;
+  const navigation = state.navigation;
   const response = await fetch(`/api${path}`, {
     method,
     headers: { ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...(state.csrf ? { 'x-csrf-token': state.csrf } : {}) },
@@ -35,7 +37,7 @@ async function requestApi(path, method = 'GET', body) {
   if (!response.ok) {
     let data;
     try { data = await response.json(); } catch { throw Error('服务返回异常，请稍后重试'); }
-    if (response.status === 401 && !['/login', '/setup', '/reset'].includes(path)) { $('#editor').close(); showAuth('login'); }
+    if (response.status === 401 && session === state.csrf && navigation === state.navigation && !['/login', '/setup', '/reset'].includes(path)) { $('#editor').close(); showAuth('login'); }
     throw Error(data.error || '操作失败');
   }
   return response;
@@ -264,6 +266,8 @@ function render() {
     if (tab === 'subscriptions') {
       action(actions, '复制', () => copyLink(record));
       action(actions, '下载', () => downloadRecord(tab, record.id));
+      const calls = action(actions, '记录', () => showCalls(record));
+      calls.title = '查看调用记录'; calls.setAttribute('aria-label', '查看调用记录');
     } else if (tab === 'bases' || tab === 'templates') {
       action(actions, '下载', () => downloadRecord(tab, record.id));
     } else if (tab === 'sources') {
@@ -389,6 +393,62 @@ async function edit(resource, id) {
 }
 
 function showEditorError(message) { $('#editor-error').textContent = message; $('#editor-error').hidden = false; }
+
+async function showCalls(record) {
+  state.calls = { id: record.id, page: 1, total: 0, pageSize: 50, request: 0 };
+  $('#calls-name').textContent = record.name;
+  $('#calls-rows').replaceChildren();
+  $('#calls-summary').textContent = '正在加载最近 3 天的记录…';
+  $('#calls-empty').hidden = true;
+  $('#calls-table').hidden = true;
+  $('#calls-error').hidden = true;
+  $('#calls-dialog').showModal();
+  await loadCalls(1);
+}
+
+async function loadCalls(page) {
+  const view = state.calls;
+  if (!view) return;
+  const request = ++view.request;
+  const navigation = state.navigation;
+  const session = state.csrf;
+  const current = () => state.calls === view && view.request === request && state.navigation === navigation
+    && state.authenticated && state.csrf === session && $('#calls-dialog').open;
+  for (const id of ['calls-reload', 'calls-prev', 'calls-next']) $(`#${id}`).disabled = true;
+  $('#calls-error').hidden = true;
+  $('#calls-loading').hidden = false;
+  try {
+    const result = await api(`/subscriptions/${view.id}/calls?page=${page}`);
+    if (!current()) return;
+    const lastPage = Math.max(1, Math.ceil(result.total / result.pageSize));
+    if (result.page > lastPage) { await loadCalls(lastPage); return; }
+    Object.assign(view, { page: result.page, total: result.total, pageSize: result.pageSize });
+    $('#calls-rows').replaceChildren();
+    for (const record of result.records) {
+      const row = node('tr');
+      cell(row, formatTime(record.at)); cell(row, record.method); cell(row, record.ip || '—');
+      const agent = node('div', 'calls-detail', record.userAgent || '—'); agent.title = record.userAgent || '';
+      cell(row, agent);
+      cell(row, node('span', record.status < 400 ? 'result-ok' : 'result-error', `${record.status}${record.status === 499 ? ' · 中断' : record.status < 400 ? ' · 成功' : ' · 失败'}`));
+      cell(row, `${record.durationMs} ms`);
+      cell(row, node('div', 'calls-detail', record.error || '—'));
+      $('#calls-rows').append(row);
+    }
+    $('#calls-table').hidden = result.records.length === 0;
+    $('#calls-empty').hidden = result.records.length > 0;
+    $('#calls-summary').textContent = `最近 3 天 · 共 ${result.total} 次 · 第 ${result.page}/${lastPage} 页`;
+  } catch (error) {
+    if (!current()) return;
+    $('#calls-error').textContent = error.message; $('#calls-error').hidden = false;
+  } finally {
+    if (current()) {
+      $('#calls-loading').hidden = true;
+      $('#calls-reload').disabled = false;
+      $('#calls-prev').disabled = view.page <= 1;
+      $('#calls-next').disabled = view.page * view.pageSize >= view.total;
+    }
+  }
+}
 
 async function copyLink(record) {
   const navigation = state.navigation;
@@ -533,6 +593,14 @@ $('#editor-form').addEventListener('submit', async event => {
 for (const id of ['close-editor', 'cancel-editor']) $(`#${id}`).addEventListener('click', () => $('#editor').close());
 $('#close-copy').addEventListener('click', () => $('#copy-dialog').close());
 $('#close-results').addEventListener('click', () => $('#results-dialog').close());
+$('#close-calls').addEventListener('click', () => $('#calls-dialog').close());
+$('#calls-dialog').addEventListener('close', () => {
+  if ($('#calls-dialog').open) return;
+  state.calls = null; $('#calls-rows').replaceChildren();
+});
+$('#calls-reload').addEventListener('click', () => loadCalls(1));
+$('#calls-prev').addEventListener('click', () => loadCalls(state.calls.page - 1));
+$('#calls-next').addEventListener('click', () => loadCalls(state.calls.page + 1));
 for (const id of ['close-preview', 'done-preview']) $(`#${id}`).addEventListener('click', () => $('#preview-dialog').close());
 $('#preview-dialog').addEventListener('close', () => { state.previewContent = ''; state.previewSourceId = null; $('#preview-content').value = ''; });
 $('#download-preview').addEventListener('click', async () => {

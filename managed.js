@@ -164,6 +164,9 @@ class Managed {
       state[resource] = state[resource].filter(row => row.id !== id);
     });
     if (cache) await this.discard(cache.file);
+    if (resource === 'subscriptions' && this.options.callRecords) {
+      await this.options.callRecords.remove(id).catch(() => this.options.logger?.error('Unable to remove subscription call records'));
+    }
   }
 
   async discard(file) { await unlink(join(this.store.directory, file)).catch(() => {}); }
