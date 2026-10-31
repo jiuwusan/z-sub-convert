@@ -46,7 +46,9 @@ class Managed {
     if (!RESOURCES.includes(resource)) throw new AppError('记录类型不存在', 404);
     const record = find(this.store.read(), resource, id);
     const { cache, ...safe } = record;
-    return resource === 'sources' ? { ...safe, updateMode: safe.updateMode ?? 'auto' } : safe;
+    if (resource === 'sources') return { ...safe, updateMode: safe.updateMode ?? 'auto' };
+    if (resource === 'subscriptions') return { ...safe, removeFailover: safe.removeFailover ?? false };
+    return safe;
   }
 
   status(record) {
@@ -67,6 +69,7 @@ class Managed {
       nameservers: state.nameservers,
       subscriptions: state.subscriptions.map(row => ({
         ...row,
+        removeFailover: row.removeFailover ?? false,
         sourceNames: row.sourceIds.map(id => find(state, 'sources', id).name),
         templateName: find(state, 'templates', row.templateId).name,
         baseName: find(state, 'bases', row.baseId).name,
@@ -122,6 +125,7 @@ class Managed {
         throw new AppError('请选择不超过 50 个 nameserver');
       }
       if (input.useSourceNameservers !== undefined && typeof input.useSourceNameservers !== 'boolean') throw new AppError('订阅源 nameserver 开关无效');
+      if (input.removeFailover !== undefined && typeof input.removeFailover !== 'boolean') throw new AppError('移除故障转移组选项须为布尔值');
       if (!input.useSourceNameservers && !input.nameserverIds.length) throw new AppError('请至少选择一个 nameserver');
       fields = { name, sourceIds: [...new Set(input.sourceIds)], templateId: input.templateId,
         baseId: input.baseId, nameserverIds: [...new Set(input.nameserverIds)], useSourceNameservers: input.useSourceNameservers ?? false };
@@ -130,6 +134,7 @@ class Managed {
       const existing = id ? find(state, resource, id) : null;
       if (resource === 'sources') fields.updateMode = input.updateMode ?? existing?.updateMode ?? 'auto';
       if (resource === 'subscriptions') {
+        fields.removeFailover = input.removeFailover ?? existing?.removeFailover ?? false;
         for (const sourceId of fields.sourceIds) find(state, 'sources', sourceId);
         find(state, 'templates', fields.templateId);
         find(state, 'bases', fields.baseId);
@@ -281,7 +286,7 @@ class Managed {
 
   configuration(state, sub) {
     return JSON.stringify([sub.sourceIds, sub.templateId, find(state, 'templates', sub.templateId).content,
-      sub.baseId, find(state, 'bases', sub.baseId).content, sub.useSourceNameservers, sub.nameserverIds,
+      sub.baseId, find(state, 'bases', sub.baseId).content, sub.useSourceNameservers, sub.nameserverIds, sub.removeFailover ?? false,
       sub.nameserverIds.map(id => find(state, 'nameservers', id).address),
       sub.sourceIds.map(id => { const source = find(state, 'sources', id); return [source.revision, source.updateMode ?? 'auto']; })]);
   }
@@ -305,7 +310,7 @@ class Managed {
       const nameservers = chooseNameservers(current.useSourceNameservers, sources.map(result => result.nameservers),
         current.nameserverIds.map(id => find(latest, 'nameservers', id).address));
       const template = composeTemplate(find(latest, 'bases', current.baseId).content, find(latest, 'templates', current.templateId).content, nameservers);
-      const body = YAML.stringify(transformConfig(template, sources.map(result => result.proxies)), { lineWidth: 0 });
+      const body = YAML.stringify(transformConfig(template, sources.map(result => result.proxies), { removeFailover: current.removeFailover ?? false }), { lineWidth: 0 });
       return { name: current.name, body, stale: sources.some(result => result.stale), ...this.packageInfo(sources.map(result => result.userInfo)) };
     }
     throw new AppError('配置已变更，请重试', 409);

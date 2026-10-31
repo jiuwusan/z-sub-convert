@@ -413,3 +413,39 @@ test('switching mode preserves cache metadata and lets an already started refres
   assert.equal(switched.lastSuccessAt, original.lastSuccessAt);
   assert.equal(switched.revision, original.revision);
 });
+
+test('remove-failover is per subscription, defaults false and persists without refetching cached sources', async t => {
+  const f = await fixture(t);
+  assert.equal(f.sub.removeFailover, false);
+  const normal = await f.service.content(f.sub.key);
+  assert.ok(YAML.parse(normal.body)['proxy-groups'].some(group => group.name === '🔰 故障转移'));
+  const originalTemplate = f.service.get('templates', f.sub.templateId).content;
+  await f.service.save('subscriptions', { ...f.sub, removeFailover: true }, f.sub.id);
+  const removed = await f.service.content(f.sub.key);
+  assert.equal(YAML.parse(removed.body)['proxy-groups'].some(group => group.name === '🔰 故障转移'), false);
+  assert.ok(YAML.parse(removed.body)['proxy-groups'].some(group => group.type === 'fallback'));
+  assert.equal(f.calls.length, 2);
+  assert.equal(f.service.get('templates', f.sub.templateId).content, originalTemplate);
+  const { removeFailover, ...withoutOption } = f.service.get('subscriptions', f.sub.id);
+  await f.service.save('subscriptions', { ...withoutOption, name: '改名' }, f.sub.id);
+  assert.equal(f.service.get('subscriptions', f.sub.id).removeFailover, true);
+  const restarted = new Managed(await Store.open(f.options), { now: () => 100000, fetchImpl: async () => { throw Error('must use cache'); } });
+  assert.equal(restarted.list().subscriptions[0].removeFailover, true);
+  assert.equal((await restarted.content(f.sub.key)).body, removed.body);
+  for (const value of ['true', null, 1]) await assert.rejects(f.service.save('subscriptions', { ...f.sub, removeFailover: value }, f.sub.id), /故障转移/);
+  await f.store.update(state => { delete state.subscriptions[0].removeFailover; });
+  assert.equal(f.service.get('subscriptions', f.sub.id).removeFailover, false);
+  assert.equal(f.service.list().subscriptions[0].removeFailover, false);
+});
+
+test('applies the latest remove-failover setting when changed during pending upstream reads', async t => {
+  const f = await fixture(t);
+  let release; f.hold(new Promise(resolve => { release = resolve; }));
+  const pending = f.service.content(f.sub.key);
+  await new Promise(resolve => setImmediate(resolve));
+  await f.service.save('subscriptions', { ...f.sub, removeFailover: true }, f.sub.id);
+  release();
+  const output = YAML.parse((await pending).body);
+  assert.equal(output['proxy-groups'].some(group => group.name === '🔰 故障转移'), false);
+  assert.equal(f.calls.length, 2);
+});

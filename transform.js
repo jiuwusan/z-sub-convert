@@ -39,7 +39,50 @@ function findRequiredGroup(groups, name) {
   return group;
 }
 
-function transformConfig(template, upstreamProxyLists) {
+function removeFailoverGroup(output, failover) {
+  const removed = '🔰 故障转移';
+  const selector = '🚀 节点选择';
+  const members = failover.proxies.filter(name => name !== removed);
+  output['proxy-groups'] = output['proxy-groups'].filter(group => group.name !== removed);
+  for (const group of output['proxy-groups']) {
+    if (Array.isArray(group.proxies) && group.proxies.includes(removed)) {
+      group.proxies = [...new Set(group.proxies.flatMap(name => name === removed ? members : [name]))];
+    }
+  }
+  const rewriteRule = rule => {
+    // SUB-RULE ends in a child rule identifier, not a proxy policy.
+    if (typeof rule !== 'string' || /^\s*SUB-RULE\s*,/iu.test(rule)) return rule;
+    return rule.replace(/,(\s*)🔰 故障转移(?=\s*(?:,\s*(?:no-resolve|src)\s*)*$)/u, `,$1${selector}`);
+  };
+  if (Array.isArray(output.rules)) output.rules = output.rules.map(rewriteRule);
+  for (const [name, rules] of Object.entries(output['sub-rules'] || {})) {
+    if (Array.isArray(rules)) output['sub-rules'][name] = rules.map(rewriteRule);
+  }
+  const seenDns = new WeakSet();
+  const rewriteDns = value => {
+    if (typeof value === 'string') {
+      const index = value.indexOf('#');
+      if (index === -1) return value;
+      const fragments = value.slice(index + 1).split('&').map(fragment => {
+        try {
+          return decodeURIComponent(fragment) === removed ? fragment === removed ? selector : encodeURIComponent(selector) : fragment;
+        } catch { return fragment; }
+      });
+      return value.slice(0, index + 1) + fragments.join('&');
+    }
+    if (value && typeof value === 'object' && !seenDns.has(value)) {
+      seenDns.add(value);
+      for (const key of Object.keys(value)) value[key] = rewriteDns(value[key]);
+    }
+    return value;
+  };
+  if (output.dns) output.dns = rewriteDns(output.dns);
+  for (const proxy of [...output.proxies, ...Object.values(output['proxy-providers'] || {}).map(provider => provider?.override)]) {
+    if (proxy?.['dialer-proxy'] === removed) proxy['dialer-proxy'] = selector;
+  }
+}
+
+function transformConfig(template, upstreamProxyLists, { removeFailover = false } = {}) {
   if (!template || typeof template !== 'object' || Array.isArray(template)) {
     throw new TypeError('Template must be a YAML mapping');
   }
@@ -122,6 +165,7 @@ function transformConfig(template, upstreamProxyLists) {
   selector.proxies.push(...generatedNames);
   failover.proxies.push(...generatedNames);
   output['proxy-groups'].push(...generatedGroups);
+  if (removeFailover) removeFailoverGroup(output, failover);
 
   return output;
 }

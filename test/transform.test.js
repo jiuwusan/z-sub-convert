@@ -136,3 +136,54 @@ test('rejects missing required template structures', () => {
   template['proxy-groups'][1].proxies = 'invalid';
   assert.throws(() => transformConfig(template, [[]]), /proxies array/i);
 });
+
+test('optionally removes only the top failover group and expands its members without duplicates', () => {
+  const template = makeTemplate();
+  template['proxy-groups'][1].proxies = ['DIRECT'];
+  template['proxy-groups'].push({ name: '其他选择', type: 'select', proxies: ['🔰 故障转移', 'DIRECT'] });
+  const source = [[{ name: 'US', type: 'ss', server: 'us.example', port: 443 }]];
+  const original = structuredClone(template);
+  const normal = transformConfig(template, source);
+  assert.ok(normal['proxy-groups'].some(group => group.name === '🔰 故障转移'));
+  const output = transformConfig(template, source, { removeFailover: true });
+  assert.equal(output['proxy-groups'].some(group => group.name === '🔰 故障转移'), false);
+  assert.deepEqual(output['proxy-groups'].find(group => group.name === '🚀 节点选择').proxies, ['DIRECT', '🇺🇸 SS 美国']);
+  assert.deepEqual(output['proxy-groups'].find(group => group.name === '其他选择').proxies, ['DIRECT', '🇺🇸 SS 美国']);
+  assert.equal(output['proxy-groups'].find(group => group.name === '🇺🇸 SS 美国').type, 'fallback');
+  assert.deepEqual(output.proxies, normal.proxies);
+  assert.deepEqual(template, original);
+});
+
+test('removing failover rewrites rule, DNS and dialer references without changing credentials or matching text', () => {
+  const template = makeTemplate();
+  template.rules = ['MATCH,🔰 故障转移', 'IP-CIDR,1.1.1.0/24,🔰 故障转移,no-resolve', 'DOMAIN,🔰 故障转移,DIRECT'];
+  template['sub-rules'] = { child: ['DOMAIN,example.com,🔰 故障转移'] };
+  template.dns = { nameserver: ['https://dns.google/dns-query#🔰 故障转移&ecs=1.1.1.1', 'https://dns.google/dns-query#' + encodeURIComponent('🔰 故障转移')], 'nameserver-policy': { 'example.com': 'tls://dns.example#🔰 故障转移' } };
+  template['proxy-providers'] = { provider: { override: { 'dialer-proxy': '🔰 故障转移' } } };
+  const output = transformConfig(template, [[{ name: 'US', type: 'ss', password: '🔰 故障转移', 'dialer-proxy': '🔰 故障转移' }]], { removeFailover: true });
+  assert.deepEqual(output.rules, ['MATCH,🚀 节点选择', 'IP-CIDR,1.1.1.0/24,🚀 节点选择,no-resolve', 'DOMAIN,🔰 故障转移,DIRECT']);
+  assert.deepEqual(output['sub-rules'].child, ['DOMAIN,example.com,🚀 节点选择']);
+  assert.equal(output.dns.nameserver[0], 'https://dns.google/dns-query#🚀 节点选择&ecs=1.1.1.1');
+  assert.equal(decodeURIComponent(output.dns.nameserver[1].split('#')[1]), '🚀 节点选择');
+  assert.equal(output.dns['nameserver-policy']['example.com'], 'tls://dns.example#🚀 节点选择');
+  assert.equal(output.proxies[0]['dialer-proxy'], '🚀 节点选择');
+  assert.equal(output.proxies[0].password, '🔰 故障转移');
+  assert.equal(output['proxy-providers'].provider.override['dialer-proxy'], '🚀 节点选择');
+});
+
+test('removing failover handles src options and preserves SUB-RULE identifiers', () => {
+  const template = makeTemplate();
+  template.rules = [
+    'IP-CIDR,192.168.0.0/16,🔰 故障转移,src',
+    'IP-CIDR,192.168.0.0/16,🔰 故障转移,src,no-resolve',
+    'SUB-RULE,(NETWORK,UDP),🔰 故障转移'
+  ];
+  template['sub-rules'] = { '🔰 故障转移': ['MATCH,🔰 故障转移'] };
+  const output = transformConfig(template, [[]], { removeFailover: true });
+  assert.deepEqual(output.rules, [
+    'IP-CIDR,192.168.0.0/16,🚀 节点选择,src',
+    'IP-CIDR,192.168.0.0/16,🚀 节点选择,src,no-resolve',
+    'SUB-RULE,(NETWORK,UDP),🔰 故障转移'
+  ]);
+  assert.deepEqual(output['sub-rules']['🔰 故障转移'], ['MATCH,🚀 节点选择']);
+});

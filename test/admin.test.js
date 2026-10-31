@@ -449,3 +449,25 @@ test('manual update mode is configurable through source APIs and never fetches o
   assert.equal((await (await f.request(`/api/sources/${source.id}/updates`)).json()).records[0].trigger, 'on-demand');
   assert.equal((await f.request('/api/sources', 'POST', { name: '无效模式', url: source.url, updateMode: 'bad' })).status, 400);
 });
+
+test('system links and downloads honor the remove-failover option while shared templates stay intact', async t => {
+  const f = await fixture(t);
+  await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' }); await f.login();
+  const state = await (await f.request('/api/state')).json();
+  const source = await (await f.request('/api/sources', 'POST', { name: '来源', url: 'https://provider.example/sub' })).json();
+  const sub = await (await f.request('/api/subscriptions', 'POST', { name: '移除故障转移', sourceIds: [source.id], baseId: state.bases[0].id, templateId: state.templates[0].id, nameserverIds: state.nameservers.map(row => row.id), removeFailover: true })).json();
+  assert.equal(sub.removeFailover, true);
+  for (const path of [`/sub?key=${sub.key}`, `/api/subscriptions/${sub.id}/download`]) {
+    const result = await f.request(path);
+    assert.equal(result.status, 200);
+    const body = YAML.parse(await result.text());
+    assert.equal(body['proxy-groups'].some(group => group.name === '🔰 故障转移'), false);
+    assert.deepEqual(body['proxy-groups'].find(group => group.name === '🚀 节点选择').proxies, ['🇺🇸 SS 美国']);
+  }
+  assert.equal(f.upstreamCalls(), 1);
+  const template = await f.request(`/api/templates/${sub.templateId}/download`);
+  assert.ok(YAML.parse(await template.text())['proxy-groups'].some(group => group.name === '🔰 故障转移'));
+  await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...sub, removeFailover: false });
+  assert.ok(YAML.parse(await (await f.request(`/sub?key=${sub.key}`)).text())['proxy-groups'].some(group => group.name === '🔰 故障转移'));
+  assert.equal(f.upstreamCalls(), 1);
+});
