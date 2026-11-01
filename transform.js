@@ -46,7 +46,9 @@ function removeFailoverGroup(output, failover) {
   output['proxy-groups'] = output['proxy-groups'].filter(group => group.name !== removed);
   for (const group of output['proxy-groups']) {
     if (Array.isArray(group.proxies) && group.proxies.includes(removed)) {
-      group.proxies = [...new Set(group.proxies.flatMap(name => name === removed ? members : [name]))];
+      // Only the main selector inherits members; service groups keep their scope.
+      const replacement = group.name === selector ? members : [selector];
+      group.proxies = [...new Set(group.proxies.flatMap(name => name === removed ? replacement : [name]))];
     }
   }
   const rewriteRule = rule => {

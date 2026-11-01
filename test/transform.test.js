@@ -137,7 +137,7 @@ test('rejects missing required template structures', () => {
   assert.throws(() => transformConfig(template, [[]]), /proxies array/i);
 });
 
-test('optionally removes only the top failover group and expands its members without duplicates', () => {
+test('optionally removes the top failover group while keeping members in the main selector', () => {
   const template = makeTemplate();
   template['proxy-groups'][1].proxies = ['DIRECT'];
   template['proxy-groups'].push({ name: '其他选择', type: 'select', proxies: ['🔰 故障转移', 'DIRECT'] });
@@ -148,10 +148,29 @@ test('optionally removes only the top failover group and expands its members wit
   const output = transformConfig(template, source, { removeFailover: true });
   assert.equal(output['proxy-groups'].some(group => group.name === '🔰 故障转移'), false);
   assert.deepEqual(output['proxy-groups'].find(group => group.name === '🚀 节点选择').proxies, ['DIRECT', '🇺🇸 SS 美国']);
-  assert.deepEqual(output['proxy-groups'].find(group => group.name === '其他选择').proxies, ['DIRECT', '🇺🇸 SS 美国']);
+  assert.deepEqual(output['proxy-groups'].find(group => group.name === '其他选择').proxies, ['🚀 节点选择', 'DIRECT']);
   assert.equal(output['proxy-groups'].find(group => group.name === '🇺🇸 SS 美国').type, 'fallback');
   assert.deepEqual(output.proxies, normal.proxies);
   assert.deepEqual(template, original);
+});
+
+test('AI group does not gain country groups when removing failover', () => {
+  for (const members of [
+    ['🚀 节点选择', '🔰 故障转移'],
+    ['🔰 故障转移'],
+    ['🚀 节点选择']
+  ]) {
+    const template = makeTemplate();
+    template['proxy-groups'].push({ name: '💬 Ai平台', type: 'select', proxies: members });
+    const source = [[{ name: 'US', type: 'ss', server: 'us.example', port: 443 }]];
+    const normal = transformConfig(template, source);
+    assert.deepEqual(normal['proxy-groups'].find(group => group.name === '💬 Ai平台').proxies, members);
+    const output = transformConfig(template, source, { removeFailover: true });
+    assert.deepEqual(output['proxy-groups'].find(group => group.name === '💬 Ai平台').proxies, ['🚀 节点选择']);
+    const main = output['proxy-groups'].find(group => group.name === '🚀 节点选择');
+    assert.ok(main.proxies.includes('🇺🇸 SS 美国'));
+    assert.equal(main.proxies.includes(main.name), false);
+  }
 });
 
 test('removing failover rewrites rule, DNS and dialer references without changing credentials or matching text', () => {
