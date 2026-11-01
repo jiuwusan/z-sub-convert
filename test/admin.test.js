@@ -9,14 +9,14 @@ const { createApp } = require('../server');
 const YAML = require('yaml');
 const http = require('node:http');
 
-async function fixture(t, dataDir, upstreamHeaders = {}) {
+async function fixture(t, dataDir, upstreamHeaders = {}, upstreamOverride) {
   if (!dataDir) {
     dataDir = await mkdtemp(join(tmpdir(), 'managed-api-'));
     t.after(() => rm(dataDir, { recursive: true, force: true }));
   }
   let upstreamCalls = 0;
   const upstreamBody = '\uFEFF# provider result\r\ndns: {enable: true}\r\nproxies:\r\n  - name: US test\r\n    type: ss\r\n    server: test.example\r\n    port: 443\r\nproxy-groups: []\r\nrules: ["MATCH,DIRECT"]\r\n';
-  const app = createApp({ dataDir, now: () => 1793155200123, resetKey: 'this-boot-key', logger: { error() {} }, fetchImpl: async () => { upstreamCalls++; return new Response(upstreamBody, { headers: upstreamHeaders }); } });
+  const app = createApp({ dataDir, now: () => 1793155200123, resetKey: 'this-boot-key', logger: { error() {} }, fetchImpl: async () => { upstreamCalls++; return new Response(upstreamOverride ?? upstreamBody, { headers: upstreamHeaders }); } });
   app.listen(0, '127.0.0.1');
   await once(app, 'listening');
   t.after(() => new Promise(resolve => { app.close(resolve); app.closeAllConnections(); }));
@@ -469,5 +469,31 @@ test('system links and downloads honor the remove-failover option while shared t
   assert.ok(YAML.parse(await template.text())['proxy-groups'].some(group => group.name === '🔰 故障转移'));
   await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...sub, removeFailover: false });
   assert.ok(YAML.parse(await (await f.request(`/sub?key=${sub.key}`)).text())['proxy-groups'].some(group => group.name === '🔰 故障转移'));
+  assert.equal(f.upstreamCalls(), 1);
+});
+
+test('system links and downloads apply even-first and revert without updating source caches', async t => {
+  const upstream = YAML.stringify({ proxies: Array.from({ length: 6 }, (_, i) => ({ name: `US ${i + 1}`, type: 'ss', server: `us-${i + 1}`, port: 443 })) });
+  const f = await fixture(t, undefined, {}, upstream);
+  await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' }); await f.login();
+  const state = await (await f.request('/api/state')).json();
+  const source = await (await f.request('/api/sources', 'POST', { name: '来源', url: 'https://provider.example/sub' })).json();
+  const sub = await (await f.request('/api/subscriptions', 'POST', { name: '偶数前置', sourceIds: [source.id], baseId: state.bases[0].id, templateId: state.templates[0].id, nameserverIds: state.nameservers.map(row => row.id) })).json();
+  assert.equal(sub.evenNodesFirst, false);
+  const groupNames = async path => {
+    const result = await f.request(path);
+    assert.equal(result.status, 200);
+    return YAML.parse(await result.text())['proxy-groups'].find(group => group.name === '🇺🇸 SS 美国').proxies;
+  };
+  const original = ['01', '02', '03', '04', '05', '06'].map(n => `🇺🇸 美国 ${n}`);
+  assert.deepEqual(await groupNames(`/sub?key=${sub.key}`), original);
+  const saved = await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...sub, evenNodesFirst: true });
+  assert.equal((await saved.json()).evenNodesFirst, true);
+  for (const path of [`/sub?key=${sub.key}`, `/api/subscriptions/${sub.id}/download`]) {
+    assert.deepEqual(await groupNames(path), ['02', '04', '06', '01', '03', '05'].map(n => `🇺🇸 美国 ${n}`));
+  }
+  assert.equal((await (await f.request('/api/state')).json()).subscriptions[0].evenNodesFirst, true);
+  await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...sub, evenNodesFirst: false });
+  assert.deepEqual(await groupNames(`/sub?key=${sub.key}`), original);
   assert.equal(f.upstreamCalls(), 1);
 });

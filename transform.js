@@ -84,7 +84,7 @@ function removeFailoverGroup(output, failover) {
   }
 }
 
-function transformConfig(template, upstreamProxyLists, { removeFailover = false } = {}) {
+function transformConfig(template, upstreamProxyLists, { removeFailover = false, evenNodesFirst = false } = {}) {
   if (!template || typeof template !== 'object' || Array.isArray(template)) {
     throw new TypeError('Template must be a YAML mapping');
   }
@@ -141,14 +141,18 @@ function transformConfig(template, upstreamProxyLists, { removeFailover = false 
 
   const countryCounters = new Map();
   const generatedGroups = groups.map((group) => {
-    const proxyNames = group.records.map((record) => {
+    const firstNumber = (countryCounters.get(group.country.code) || 0) + 1;
+    let proxyNames = group.records.map((record) => {
       const next = (countryCounters.get(group.country.code) || 0) + 1;
       countryCounters.set(group.country.code, next);
       record.assignedName = `${group.country.flag} ${group.country.name} ${String(next).padStart(2, '0')}`;
       return record.assignedName;
     });
-    if (proxyNames.length >= 2) {
-      [proxyNames[0], proxyNames[1]] = [proxyNames[1], proxyNames[0]];
+    if (evenNodesFirst) {
+      proxyNames = [
+        ...proxyNames.filter((_, index) => (firstNumber + index) % 2 === 0),
+        ...proxyNames.filter((_, index) => (firstNumber + index) % 2 === 1)
+      ];
     }
     return {
       name: `${group.country.flag} ${group.protocol.toLocaleUpperCase('en-US')} ${group.country.name}`,

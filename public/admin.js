@@ -237,7 +237,7 @@ function render() {
       if (coverage) sources.append(node('small', 'subline package-coverage', `套餐信息覆盖 ${coverage.available}/${coverage.total} 个来源`));
       cell(row, sources);
       const templates = node('div', 'subscription-config');
-      for (const [label, value] of [['基础', record.baseName], ['规则', record.templateName + (record.removeFailover ? ' · 无故障转移' : '')]]) {
+      for (const [label, value] of [['基础', record.baseName], ['规则', record.templateName + (record.removeFailover ? ' · 无故障转移' : '') + (record.evenNodesFirst ? ' · 偶数前置' : '')]]) {
         const line = node('div', 'config-line');
         const name = node('span', 'config-value', value); name.title = value;
         line.append(node('span', 'muted', label), name); templates.append(line);
@@ -383,6 +383,10 @@ async function edit(resource, id) {
     const removeFailover = node('input'); removeFailover.type = 'checkbox'; removeFailover.name = 'removeFailover'; removeFailover.checked = record.removeFailover ?? false;
     failoverOption.append(removeFailover, node('span', '', '移除“🔰 故障转移”组'));
     fields.append(failoverOption, node('p', 'field-help', '勾选后移除顶层“🔰 故障转移”组，保留各国家和协议分组；只影响当前系统订阅，不修改规则模板。'));
+    const evenOption = node('label', 'source-option');
+    const evenNodesFirst = node('input'); evenNodesFirst.type = 'checkbox'; evenNodesFirst.name = 'evenNodesFirst'; evenNodesFirst.checked = record.evenNodesFirst ?? false;
+    evenOption.append(evenNodesFirst, node('span', '', '偶数节点前置'));
+    fields.append(evenOption, node('p', 'field-help', '按节点名称中的编号，将各国家和协议分组内的偶数节点排在前面，奇偶各自保持原序，例如 02、04、06、01、03、05；不勾选则保留原始顺序。'));
     const sourceDns = node('label', 'source-option');
     const useSource = node('input'); useSource.type = 'checkbox'; useSource.name = 'useSourceNameservers'; useSource.checked = record.useSourceNameservers ?? false;
     sourceDns.append(useSource, node('span', '', '使用订阅源 nameserver'));
@@ -609,6 +613,7 @@ $('#editor-form').addEventListener('submit', async event => {
       body.sourceIds = form.getAll('sourceIds'); body.templateId = form.get('templateId');
       body.baseId = form.get('baseId'); body.nameserverIds = form.getAll('nameserverIds'); body.useSourceNameservers = form.has('useSourceNameservers');
       body.removeFailover = form.has('removeFailover');
+      body.evenNodesFirst = form.has('evenNodesFirst');
       if (!body.sourceIds.length) throw Error('请至少选择一个第三方订阅源');
       if (!body.useSourceNameservers && !body.nameserverIds.length) throw Error('请至少选择一个 nameserver');
     }

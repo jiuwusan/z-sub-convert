@@ -8,7 +8,7 @@ const YAML = require('yaml');
 const { Store } = require('../store');
 const { Managed, CACHE_MS } = require('../managed');
 
-async function fixture(t) {
+async function fixture(t, proxiesBySource) {
   const directory = await mkdtemp(join(tmpdir(), 'managed-cache-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const options = { directory, templatePath: join(__dirname, '../prds/template.yaml') };
@@ -22,7 +22,7 @@ async function fixture(t) {
     if (hold) await hold;
     if (fail && String(url).includes('two')) return new Response('', { status: 503 });
     const packageHeader = packages[String(url).includes('two') ? 'two' : 'one'];
-    return new Response(YAML.stringify({ dns: { nameserver: sourceDns[String(url).includes('two') ? 'two' : 'one'] }, proxies: [{ name: String(url).includes('two') ? 'JP' : 'US', type: 'ss', server: `node-${generation}.example`, port: 443 }] }), { headers: packageHeader ? { 'subscription-userinfo': packageHeader } : {} });
+    return new Response(YAML.stringify({ dns: { nameserver: sourceDns[String(url).includes('two') ? 'two' : 'one'] }, proxies: proxiesBySource?.[String(url).includes('two') ? 'two' : 'one'] ?? [{ name: String(url).includes('two') ? 'JP' : 'US', type: 'ss', server: `node-${generation}.example`, port: 443 }] }), { headers: packageHeader ? { 'subscription-userinfo': packageHeader } : {} });
   } });
   const one = await service.save('sources', { name: '来源一', url: 'https://source.test/one?token=secret', userAgent: 'custom-agent' });
   const two = await service.save('sources', { name: '来源二', url: 'https://source.test/two' });
@@ -447,5 +447,49 @@ test('applies the latest remove-failover setting when changed during pending ups
   release();
   const output = YAML.parse((await pending).body);
   assert.equal(output['proxy-groups'].some(group => group.name === '🔰 故障转移'), false);
+  assert.equal(f.calls.length, 2);
+});
+
+const sortingSources = {
+  one: [1, 2, 3].map(n => ({ name: `US ${n}`, type: 'ss', server: `one-${n}`, port: 443 })),
+  two: [1, 2, 3].map(n => ({ name: `US ${n}`, type: 'ss', server: `two-${n}`, port: 443 }))
+};
+const sortedUsNames = ['02', '04', '06', '01', '03', '05'].map(n => `🇺🇸 美国 ${n}`);
+const usGroup = body => YAML.parse(body)['proxy-groups'].find(group => group.name === '🇺🇸 SS 美国').proxies;
+
+test('even-first is per subscription, defaults false and persists without refetching', async t => {
+  const f = await fixture(t, sortingSources);
+  assert.equal(f.sub.evenNodesFirst, false);
+  const original = await f.service.content(f.sub.key);
+  assert.deepEqual(usGroup(original.body), ['01', '02', '03', '04', '05', '06'].map(n => `🇺🇸 美国 ${n}`));
+  await f.service.save('subscriptions', { ...f.sub, evenNodesFirst: true, removeFailover: true }, f.sub.id);
+  const sorted = await f.service.content(f.sub.key);
+  assert.deepEqual(usGroup(sorted.body), sortedUsNames);
+  assert.equal(YAML.parse(sorted.body)['proxy-groups'].some(group => group.name === '🔰 故障转移'), false);
+  assert.equal(f.calls.length, 2);
+  const other = await f.service.save('subscriptions', { ...f.sub, name: '其他订阅' });
+  assert.deepEqual(usGroup((await f.service.content(other.key)).body), usGroup(original.body));
+  const { evenNodesFirst, ...omitted } = f.service.get('subscriptions', f.sub.id);
+  await f.service.save('subscriptions', omitted, f.sub.id);
+  assert.equal(f.service.get('subscriptions', f.sub.id).evenNodesFirst, true);
+  const restarted = new Managed(await Store.open(f.options), { now: () => 100000, fetchImpl: () => { throw Error('must use cache'); } });
+  assert.equal(restarted.list().subscriptions[0].evenNodesFirst, true);
+  assert.deepEqual(usGroup((await restarted.content(f.sub.key)).body), sortedUsNames);
+  for (const value of ['true', null, 1]) await assert.rejects(f.service.save('subscriptions', { ...f.sub, evenNodesFirst: value }, f.sub.id), /偶数/);
+  await f.store.update(state => { delete state.subscriptions[0].evenNodesFirst; });
+  assert.equal(f.service.get('subscriptions', f.sub.id).evenNodesFirst, false);
+  assert.equal(f.service.list().subscriptions[0].evenNodesFirst, false);
+  assert.deepEqual(usGroup((await f.service.content(f.sub.key)).body), usGroup(original.body));
+  assert.equal(f.calls.length, 2);
+});
+
+test('applies the latest even-first setting during pending upstream reads', async t => {
+  const f = await fixture(t, sortingSources);
+  let release; f.hold(new Promise(resolve => { release = resolve; }));
+  const pending = f.service.content(f.sub.key);
+  await new Promise(resolve => setImmediate(resolve));
+  await f.service.save('subscriptions', { ...f.sub, evenNodesFirst: true }, f.sub.id);
+  release();
+  assert.deepEqual(usGroup((await pending).body), sortedUsNames);
   assert.equal(f.calls.length, 2);
 });
