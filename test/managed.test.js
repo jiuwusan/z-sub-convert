@@ -253,7 +253,7 @@ test('renders the latest template/selection when edited during pending source re
   release();
   const output = YAML.parse((await pending).body);
   assert.equal(output['mixed-port'], 8899);
-  assert.deepEqual(output.proxies.map(proxy => proxy.name), ['🇯🇵 日本 01']);
+  assert.deepEqual(output.proxies.map(proxy => proxy.name), ['🇯🇵 来源二 日本 01']);
   assert.equal(f.calls.length, 2);
 });
 
@@ -454,14 +454,14 @@ const sortingSources = {
   one: [1, 2, 3].map(n => ({ name: `US ${n}`, type: 'ss', server: `one-${n}`, port: 443 })),
   two: [1, 2, 3].map(n => ({ name: `US ${n}`, type: 'ss', server: `two-${n}`, port: 443 }))
 };
-const sortedUsNames = ['02', '04', '06', '01', '03', '05'].map(n => `🇺🇸 美国 ${n}`);
-const usGroup = body => YAML.parse(body)['proxy-groups'].find(group => group.name === '🇺🇸 SS 美国').proxies;
+const sortedUsNames = ['02', '01', '03'].map(n => `🇺🇸 来源一 美国 ${n}`);
+const usGroup = body => YAML.parse(body)['proxy-groups'].find(group => group.name === '🇺🇸 来源一 SS 美国').proxies;
 
 test('even-first is per subscription, defaults false and persists without refetching', async t => {
   const f = await fixture(t, sortingSources);
   assert.equal(f.sub.evenNodesFirst, false);
   const original = await f.service.content(f.sub.key);
-  assert.deepEqual(usGroup(original.body), ['01', '02', '03', '04', '05', '06'].map(n => `🇺🇸 美国 ${n}`));
+  assert.deepEqual(usGroup(original.body), ['01', '02', '03'].map(n => `🇺🇸 来源一 美国 ${n}`));
   await f.service.save('subscriptions', { ...f.sub, evenNodesFirst: true, removeFailover: true }, f.sub.id);
   const sorted = await f.service.content(f.sub.key);
   assert.deepEqual(usGroup(sorted.body), sortedUsNames);
@@ -565,5 +565,36 @@ test('uses latest DNS source selection after pending source reads without extra 
   await f.service.save('subscriptions', { ...f.sub, useSourceNameservers: true, nameserverSourceIds: [f.two.id] }, f.sub.id);
   release();
   assert.deepEqual(YAML.parse((await pending).body).dns.nameserver, f.sourceDns.two);
+  assert.equal(f.calls.length, 2);
+});
+
+test('names groups and nodes by current source, uses country-first source order and renames without refetch', async t => {
+  const nodes = [{ name: 'JP', type: 'ss' }, { name: 'US', type: 'ss' }];
+  const f = await fixture(t, { one: nodes, two: nodes });
+  const groups = body => YAML.parse(body)['proxy-groups'].filter(group => group.name.includes(' SS '));
+  const normal = await f.service.content(f.sub.key);
+  assert.deepEqual(groups(normal.body).map(group => group.name), ['🇺🇸 来源一 SS 美国', '🇺🇸 来源二 SS 美国', '🇯🇵 来源一 SS 日本', '🇯🇵 来源二 SS 日本']);
+  assert.deepEqual(YAML.parse(normal.body).proxies.map(proxy => proxy.name), ['🇯🇵 来源一 日本 01', '🇺🇸 来源一 美国 01', '🇯🇵 来源二 日本 01', '🇺🇸 来源二 美国 01']);
+  await f.service.save('subscriptions', { ...f.sub, sourceIds: [f.two.id, f.one.id] }, f.sub.id);
+  assert.deepEqual(groups((await f.service.content(f.sub.key)).body).map(group => group.name), ['🇺🇸 来源二 SS 美国', '🇺🇸 来源一 SS 美国', '🇯🇵 来源二 SS 日本', '🇯🇵 来源一 SS 日本']);
+  const oldRevision = sourceState(f, f.one.id).revision;
+  await f.service.save('sources', { ...f.service.get('sources', f.one.id), name: '新名称' }, f.one.id);
+  const renamed = YAML.parse((await f.service.content(f.sub.key)).body);
+  assert.ok(renamed.proxies.some(proxy => proxy.name === '🇺🇸 新名称 美国 01'));
+  assert.ok(renamed['proxy-groups'].some(group => group.name === '🇺🇸 新名称 SS 美国'));
+  assert.equal(sourceState(f, f.one.id).revision, oldRevision);
+  assert.equal(f.calls.length, 2);
+});
+
+test('uses the latest source name changed during pending reads', async t => {
+  const f = await fixture(t);
+  let release; f.hold(new Promise(resolve => { release = resolve; }));
+  const pending = f.service.content(f.sub.key);
+  await new Promise(resolve => setImmediate(resolve));
+  await f.service.save('sources', { ...f.service.get('sources', f.one.id), name: '新名称' }, f.one.id);
+  release();
+  const output = YAML.parse((await pending).body);
+  assert.ok(output.proxies.some(proxy => proxy.name === '🇺🇸 新名称 美国 01'));
+  assert.ok(output['proxy-groups'].some(group => group.name === '🇺🇸 新名称 SS 美国'));
   assert.equal(f.calls.length, 2);
 });

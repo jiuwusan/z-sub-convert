@@ -364,15 +364,47 @@ async function edit(resource, id) {
       ...state.data.sources.filter(source => !selectedIds.includes(source.id))
     ];
     for (const source of orderedSources) {
+      const row = node('div', 'source-order-row');
       const label = node('label', 'source-option');
       const check = node('input');
       check.type = 'checkbox'; check.name = 'sourceIds'; check.value = source.id;
       check.checked = record.sourceIds?.includes(source.id) || false;
       const caption = node('span', '', source.name);
       caption.append(node('small', '', source.urlSummary));
-      label.append(check, caption); list.append(label);
+      label.append(check, caption);
+      const controls = node('div', 'source-order-actions');
+      for (const [direction, text] of [[-1, '上移'], [1, '下移']]) {
+        const button = node('button', `source-move-button ${direction === -1 ? 'source-move-up' : 'source-move-down'}`, text);
+        button.type = 'button'; button.setAttribute('aria-label', `${source.name}${text}`);
+        button.addEventListener('click', () => {
+          const selected = [...list.querySelectorAll('.source-order-row')].filter(item => item.querySelector('[name=sourceIds]').checked);
+          const index = selected.indexOf(row);
+          const neighbor = selected[index + direction];
+          if (!check.checked || !neighbor) return;
+          if (direction === -1) list.insertBefore(row, neighbor);
+          else list.insertBefore(neighbor, row);
+          list.dispatchEvent(new Event('change', { bubbles: true }));
+          (button.disabled ? check : button).focus();
+        });
+        controls.append(button);
+      }
+      row.append(label, controls); list.append(row);
     }
-    group.append(groupTitle, list);
+    const updateSourceOrder = () => {
+      const focused = list.contains(document.activeElement) ? document.activeElement : null;
+      const rows = [...list.querySelectorAll('.source-order-row')];
+      const selected = rows.filter(row => row.querySelector('[name=sourceIds]').checked);
+      list.append(...selected, ...rows.filter(row => !selected.includes(row)));
+      for (const row of rows) {
+        const index = selected.indexOf(row);
+        row.querySelector('.source-order-actions').hidden = index === -1;
+        row.querySelector('.source-move-up').disabled = index <= 0;
+        row.querySelector('.source-move-down').disabled = index === -1 || index === selected.length - 1;
+      }
+      if (focused && !focused.disabled) focused.focus({ preventScroll: true });
+    };
+    list.addEventListener('change', updateSourceOrder); updateSourceOrder();
+    group.append(groupTitle, list, node('p', 'field-help', '已选来源可上移或下移，保存后按此顺序参与分组和 nameserver 聚合；新勾选的来源追加到末尾。'));
     fields.append(group);
     for (const [title, name, options] of [['基础模板', 'baseId', state.data.bases], ['规则模板', 'templateId', state.data.templates]]) {
       const label = node('label', '', title);

@@ -771,6 +771,49 @@ dialog form {
   margin-top:4px;
   overflow-wrap:anywhere
 }
+.source-order-row {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  border-bottom:1px solid #edf1ed
+}
+.source-order-row:last-child {
+  border-bottom:0
+}
+.source-order-row>.source-option {
+  flex:1;
+  min-width:0;
+  margin:0;
+  border:0
+}
+.source-order-row .source-option>span {
+  min-width:0;
+  overflow-wrap:anywhere
+}
+.source-order-row .source-option>input {
+  flex-shrink:0
+}
+.source-order-actions {
+  display:flex;
+  flex-shrink:0;
+  gap:4px
+}
+.source-move-button {
+  min-height:32px;
+  padding:6px 7px;
+  border:1px solid #d9e3dd;
+  border-radius:5px;
+  font-size:11px;
+  white-space:nowrap;
+  color:var(--accent);
+  background:white
+}
+.source-move-button:hover:not(:disabled) {
+  background:#f0f5f2
+}
+.source-move-button:disabled {
+  cursor:default
+}
 .field-title {
   font-size:13px;
   font-weight:600;

@@ -118,6 +118,58 @@ test('even-first uses country-wide assigned numbers across protocols and merges 
   assert.deepEqual(output.proxies.map(proxy => proxy.name), ['🇸🇬 新加坡 01', '🇸🇬 新加坡 02', '🇯🇵 日本 01', '🇸🇬 新加坡 03', '🇸🇬 新加坡 04']);
 });
 
+test('splits countries by source and orders country then subscription source then protocol', () => {
+  const sources = [
+    [{ name: 'JP', type: 'ss' }, { name: 'US HY', type: 'hysteria2' }, { name: 'US SS', type: 'ss' }],
+    [{ name: 'JP', type: 'ss' }, { name: 'US', type: 'ss' }]
+  ];
+  const template = makeTemplate();
+  const output = transformConfig(template, sources, { sourceNames: ['A', 'B'] });
+  const names = ['🇺🇸 A SS 美国', '🇺🇸 A HYSTERIA2 美国', '🇺🇸 B SS 美国', '🇯🇵 A SS 日本', '🇯🇵 B SS 日本'];
+  assert.deepEqual(output['proxy-groups'].slice(3).map(group => group.name), names);
+  assert.deepEqual(output['proxy-groups'][0].proxies, ['🔰 故障转移', ...names]);
+  assert.deepEqual(output['proxy-groups'][1].proxies, names);
+  assert.deepEqual(output.proxies.map(proxy => proxy.name), ['🇯🇵 A 日本 01', '🇺🇸 A 美国 02', '🇺🇸 A 美国 01', '🇯🇵 B 日本 01', '🇺🇸 B 美国 01']);
+  assert.deepEqual(output['proxy-groups'][2], template['proxy-groups'][2]);
+  assert.equal(template.proxies.length, 0);
+  const reversed = transformConfig(template, sources, { sourceNames: ['B', 'A'] });
+  assert.deepEqual(reversed['proxy-groups'].slice(3).map(group => group.name), ['🇺🇸 B SS 美国', '🇺🇸 B HYSTERIA2 美国', '🇺🇸 A SS 美国', '🇯🇵 B SS 日本', '🇯🇵 A SS 日本']);
+});
+
+test('source-scoped numbering and even-first preserve all per-source fallback members', () => {
+  const source = () => [
+    { name: 'US', type: 'ss' },
+    ...[1, 2, 3].map(i => ({ name: `US HY ${i}`, type: 'hysteria2' }))
+  ];
+  const output = transformConfig(makeTemplate(), [source(), source()], { sourceNames: ['A', 'B'], evenNodesFirst: true, removeFailover: true });
+  for (const name of ['A', 'B']) {
+    const group = output['proxy-groups'].find(group => group.name === `🇺🇸 ${name} HYSTERIA2 美国`);
+    assert.deepEqual(group.proxies, ['02', '04', '03'].map(n => `🇺🇸 ${name} 美国 ${n}`));
+    assert.equal(group.type, 'fallback');
+  }
+  assert.equal(output['proxy-groups'].some(group => group.name === '🔰 故障转移'), false);
+  assert.equal(new Set(output.proxies.map(proxy => proxy.name)).size, 8);
+});
+
+test('source names and template name collisions remain unique with valid group references', () => {
+  const template = makeTemplate();
+  template.proxies.push({ name: '🇺🇸 A 美国 01', type: 'ss' });
+  template['proxy-groups'].push({ name: '🇺🇸 A SS 美国', type: 'select', proxies: ['DIRECT'] });
+  const source = [{ name: 'US', type: 'ss' }];
+  const output = transformConfig(template, [source, source, source], { sourceNames: ['A', 'A', 'A (2)'] });
+  assert.ok(output['proxy-groups'].slice(4).every(group => group.name.includes(' A')));
+  const allNames = [...output.proxies, ...output['proxy-groups']].map(record => record.name);
+  assert.equal(new Set(allNames).size, allNames.length);
+  for (const group of output['proxy-groups']) for (const name of group.proxies) assert.ok(name === 'DIRECT' || allNames.includes(name), name);
+  assert.deepEqual(output.proxies[0], template.proxies[0]);
+});
+
+test('rejects mismatched or invalid source-name metadata', () => {
+  for (const sourceNames of [[], [''], [null], ['A', 'B'], 'A']) {
+    assert.throws(() => transformConfig(makeTemplate(), [[]], { sourceNames }), /source names/i);
+  }
+});
+
 test('pads proxy numbers to two digits without truncating 100', () => {
   const proxies = Array.from({ length: 100 }, (_, index) => ({
     name: `JP ${index + 1}`,

@@ -300,7 +300,7 @@ class Managed {
     return JSON.stringify([sub.sourceIds, sub.templateId, find(state, 'templates', sub.templateId).content,
       sub.baseId, find(state, 'bases', sub.baseId).content, sub.useSourceNameservers, sub.nameserverIds, sub.nameserverSourceIds ?? [], sub.removeFailover ?? false, sub.evenNodesFirst ?? false,
       sub.nameserverIds.map(id => find(state, 'nameservers', id).address),
-      sub.sourceIds.map(id => { const source = find(state, 'sources', id); return [source.revision, source.updateMode ?? 'auto']; })]);
+      sub.sourceIds.map(id => { const source = find(state, 'sources', id); return [source.revision, source.updateMode ?? 'auto', source.name]; })]);
   }
 
   async content(key) {
@@ -324,7 +324,11 @@ class Managed {
       const nameservers = chooseNameservers(current.useSourceNameservers, dnsSources.map(result => result.nameservers),
         current.nameserverIds.map(id => find(latest, 'nameservers', id).address));
       const template = composeTemplate(find(latest, 'bases', current.baseId).content, find(latest, 'templates', current.templateId).content, nameservers);
-      const body = YAML.stringify(transformConfig(template, sources.map(result => result.proxies), { removeFailover: current.removeFailover ?? false, evenNodesFirst: current.evenNodesFirst ?? false }), { lineWidth: 0 });
+      const body = YAML.stringify(transformConfig(template, sources.map(result => result.proxies), {
+        removeFailover: current.removeFailover ?? false,
+        evenNodesFirst: current.evenNodesFirst ?? false,
+        sourceNames: sourceIds.map(id => find(latest, 'sources', id).name)
+      }), { lineWidth: 0 });
       return { name: current.name, body, stale: sources.some(result => result.stale), ...this.packageInfo(sources.map(result => result.userInfo)) };
     }
     throw new AppError('配置已变更，请重试', 409);

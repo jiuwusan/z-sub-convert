@@ -462,7 +462,7 @@ test('system links and downloads honor the remove-failover option while shared t
     assert.equal(result.status, 200);
     const body = YAML.parse(await result.text());
     assert.equal(body['proxy-groups'].some(group => group.name === '🔰 故障转移'), false);
-    assert.deepEqual(body['proxy-groups'].find(group => group.name === '🚀 节点选择').proxies, ['🇺🇸 SS 美国']);
+    assert.deepEqual(body['proxy-groups'].find(group => group.name === '🚀 节点选择').proxies, ['🇺🇸 来源 SS 美国']);
   }
   assert.equal(f.upstreamCalls(), 1);
   const template = await f.request(`/api/templates/${sub.templateId}/download`);
@@ -483,14 +483,14 @@ test('system links and downloads apply even-first and revert without updating so
   const groupNames = async path => {
     const result = await f.request(path);
     assert.equal(result.status, 200);
-    return YAML.parse(await result.text())['proxy-groups'].find(group => group.name === '🇺🇸 SS 美国').proxies;
+    return YAML.parse(await result.text())['proxy-groups'].find(group => group.name === '🇺🇸 来源 SS 美国').proxies;
   };
-  const original = ['01', '02', '03', '04', '05', '06'].map(n => `🇺🇸 美国 ${n}`);
+  const original = ['01', '02', '03', '04', '05', '06'].map(n => `🇺🇸 来源 美国 ${n}`);
   assert.deepEqual(await groupNames(`/sub?key=${sub.key}`), original);
   const saved = await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...sub, evenNodesFirst: true });
   assert.equal((await saved.json()).evenNodesFirst, true);
   for (const path of [`/sub?key=${sub.key}`, `/api/subscriptions/${sub.id}/download`]) {
-    assert.deepEqual(await groupNames(path), ['02', '04', '06', '01', '03', '05'].map(n => `🇺🇸 美国 ${n}`));
+    assert.deepEqual(await groupNames(path), ['02', '04', '06', '01', '03', '05'].map(n => `🇺🇸 来源 美国 ${n}`));
   }
   assert.equal((await (await f.request('/api/state')).json()).subscriptions[0].evenNodesFirst, true);
   await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...sub, evenNodesFirst: false });
@@ -525,5 +525,37 @@ test('system links and downloads honor selected DNS sources and empty selection 
   const merged = YAML.parse(await (await f.request(`/sub?key=${sub.key}`)).text());
   assert.deepEqual(merged.dns.nameserver, ['https://one.example/dns-query', 'https://two.example/dns-query']);
   assert.equal((await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...input, nameserverSourceIds: ['missing'] })).status, 400);
+  assert.equal(f.upstreamCalls(), 2);
+});
+
+test('system downloads and public links expose source-scoped country groups in country-first order', async t => {
+  const f = await fixture(t, undefined, {}, url => YAML.stringify({ dns: { nameserver: [String(url).includes('/two') ? 'https://b.example/dns-query' : 'https://a.example/dns-query'] }, proxies: [
+    { name: 'JP', type: 'ss', server: 'jp.example', port: 443 },
+    { name: 'US', type: 'ss', server: 'us.example', port: 443 }
+  ] }));
+  await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' }); await f.login();
+  const state = await (await f.request('/api/state')).json();
+  const one = await (await f.request('/api/sources', 'POST', { name: 'A', url: 'https://provider.example/one' })).json();
+  const two = await (await f.request('/api/sources', 'POST', { name: 'B', url: 'https://provider.example/two' })).json();
+  const sub = await (await f.request('/api/subscriptions', 'POST', { name: '来源国家排序', sourceIds: [one.id, two.id], baseId: state.bases[0].id, templateId: state.templates[0].id, nameserverIds: state.nameservers.map(row => row.id), useSourceNameservers: true })).json();
+  const expected = ['🇺🇸 A SS 美国', '🇺🇸 B SS 美国', '🇯🇵 A SS 日本', '🇯🇵 B SS 日本'];
+  for (const path of [`/sub?key=${sub.key}`, `/api/subscriptions/${sub.id}/download`]) {
+    const response = await f.request(path);
+    assert.equal(response.status, 200);
+    const body = YAML.parse(await response.text());
+    assert.deepEqual(body['proxy-groups'].find(group => group.name === '🚀 节点选择').proxies, ['🔰 故障转移', ...expected]);
+    assert.deepEqual(body['proxy-groups'].find(group => group.name === '🔰 故障转移').proxies, expected);
+    assert.deepEqual(body.proxies.map(proxy => proxy.name), ['🇯🇵 A 日本 01', '🇺🇸 A 美国 01', '🇯🇵 B 日本 01', '🇺🇸 B 美国 01']);
+    assert.deepEqual(body.dns.nameserver, ['https://a.example/dns-query', 'https://b.example/dns-query']);
+  }
+  const updated = await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...sub, sourceIds: [two.id, one.id] });
+  assert.equal(updated.status, 200);
+  assert.deepEqual((await updated.json()).sourceIds, [two.id, one.id]);
+  assert.deepEqual((await (await f.request(`/api/subscriptions/${sub.id}`)).json()).sourceIds, [two.id, one.id]);
+  for (const path of [`/sub?key=${sub.key}`, `/api/subscriptions/${sub.id}/download`]) {
+    const output = YAML.parse(await (await f.request(path)).text());
+    assert.deepEqual(output['proxy-groups'].find(group => group.name === '🔰 故障转移').proxies, ['🇺🇸 B SS 美国', '🇺🇸 A SS 美国', '🇯🇵 B SS 日本', '🇯🇵 A SS 日本']);
+    assert.deepEqual(output.dns.nameserver, ['https://b.example/dns-query', 'https://a.example/dns-query']);
+  }
   assert.equal(f.upstreamCalls(), 2);
 });

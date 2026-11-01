@@ -84,7 +84,14 @@ function removeFailoverGroup(output, failover) {
   }
 }
 
-function transformConfig(template, upstreamProxyLists, { removeFailover = false, evenNodesFirst = false } = {}) {
+function claimName(name, used) {
+  let candidate = name;
+  for (let suffix = 2; used.has(candidate); suffix++) candidate = `${name} (${suffix})`;
+  used.add(candidate);
+  return candidate;
+}
+
+function transformConfig(template, upstreamProxyLists, { removeFailover = false, evenNodesFirst = false, sourceNames } = {}) {
   if (!template || typeof template !== 'object' || Array.isArray(template)) {
     throw new TypeError('Template must be a YAML mapping');
   }
@@ -97,13 +104,25 @@ function transformConfig(template, upstreamProxyLists, { removeFailover = false,
   if (!Array.isArray(upstreamProxyLists)) {
     throw new TypeError('Upstream proxy lists must be an array');
   }
+  if (sourceNames !== undefined && (!Array.isArray(sourceNames) || sourceNames.length !== upstreamProxyLists.length || sourceNames.some(name => typeof name !== 'string' || !name.trim()))) {
+    throw new TypeError('Source names must match upstream proxy lists and contain non-empty names');
+  }
+  const reservedSourceNames = new Set(sourceNames?.map(name => name.trim()));
+  const seenSourceNames = new Set();
+  const sourceLabels = sourceNames?.map(name => {
+    name = name.trim();
+    if (seenSourceNames.has(name)) return claimName(name, reservedSourceNames);
+    seenSourceNames.add(name);
+    return name;
+  });
 
   const output = structuredClone(template);
   const selector = findRequiredGroup(output['proxy-groups'], '🚀 节点选择');
   const failover = findRequiredGroup(output['proxy-groups'], '🔰 故障转移');
   const records = [];
+  const usedNames = new Set([...output.proxies, ...output['proxy-groups']].map(record => record?.name));
 
-  for (const list of upstreamProxyLists) {
+  for (const [listIndex, list] of upstreamProxyLists.entries()) {
     if (!Array.isArray(list)) throw new TypeError('Each upstream proxy list must be an array');
     for (const proxy of list) {
       if (!proxy || typeof proxy !== 'object' || Array.isArray(proxy)) {
@@ -113,6 +132,8 @@ function transformConfig(template, upstreamProxyLists, { removeFailover = false,
         proxy,
         country: detectCountry(proxy.name),
         protocol: normalizeProtocol(proxy.type),
+        sourceOrder: sourceLabels ? listIndex : 0,
+        sourceName: sourceLabels?.[listIndex] ?? '',
         sourceIndex: records.length,
         assignedName: null
       });
@@ -121,12 +142,14 @@ function transformConfig(template, upstreamProxyLists, { removeFailover = false,
 
   const groupsByKey = new Map();
   for (const record of records) {
-    const key = JSON.stringify([record.protocol, record.country.code]);
+    const key = JSON.stringify([record.sourceOrder, record.protocol, record.country.code]);
     let group = groupsByKey.get(key);
     if (!group) {
       group = {
         protocol: record.protocol,
         country: record.country,
+        sourceOrder: record.sourceOrder,
+        sourceName: record.sourceName,
         records: []
       };
       groupsByKey.set(key, group);
@@ -135,17 +158,23 @@ function transformConfig(template, upstreamProxyLists, { removeFailover = false,
   }
 
   const groups = [...groupsByKey.values()].sort((left, right) => {
+    if (sourceLabels) return compareCountries(left.country, right.country) || left.sourceOrder - right.sourceOrder || compareProtocols(left.protocol, right.protocol);
     const protocolOrder = compareProtocols(left.protocol, right.protocol);
     return protocolOrder || compareCountries(left.country, right.country);
   });
 
   const countryCounters = new Map();
   const generatedGroups = groups.map((group) => {
-    const firstNumber = (countryCounters.get(group.country.code) || 0) + 1;
+    const counterKey = JSON.stringify([group.sourceOrder, group.country.code]);
+    const firstNumber = (countryCounters.get(counterKey) || 0) + 1;
+    const prefix = `${group.country.flag} ${group.sourceName ? group.sourceName + ' ' : ''}`;
+    const groupName = `${prefix}${group.protocol.toLocaleUpperCase('en-US')} ${group.country.name}`;
+    const assignedGroupName = sourceLabels ? claimName(groupName, usedNames) : groupName;
     let proxyNames = group.records.map((record) => {
-      const next = (countryCounters.get(group.country.code) || 0) + 1;
-      countryCounters.set(group.country.code, next);
-      record.assignedName = `${group.country.flag} ${group.country.name} ${String(next).padStart(2, '0')}`;
+      const next = (countryCounters.get(counterKey) || 0) + 1;
+      countryCounters.set(counterKey, next);
+      const name = `${prefix}${group.country.name} ${String(next).padStart(2, '0')}`;
+      record.assignedName = sourceLabels ? claimName(name, usedNames) : name;
       return record.assignedName;
     });
     if (evenNodesFirst) {
@@ -155,7 +184,7 @@ function transformConfig(template, upstreamProxyLists, { removeFailover = false,
       ];
     }
     return {
-      name: `${group.country.flag} ${group.protocol.toLocaleUpperCase('en-US')} ${group.country.name}`,
+      name: assignedGroupName,
       interval: 305,
       type: 'fallback',
       url: 'http://www.gstatic.com/generate_204',
