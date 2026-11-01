@@ -16,7 +16,7 @@ async function fixture(t, dataDir, upstreamHeaders = {}, upstreamOverride) {
   }
   let upstreamCalls = 0;
   const upstreamBody = '\uFEFF# provider result\r\ndns: {enable: true}\r\nproxies:\r\n  - name: US test\r\n    type: ss\r\n    server: test.example\r\n    port: 443\r\nproxy-groups: []\r\nrules: ["MATCH,DIRECT"]\r\n';
-  const app = createApp({ dataDir, now: () => 1793155200123, resetKey: 'this-boot-key', logger: { error() {} }, fetchImpl: async () => { upstreamCalls++; return new Response(upstreamOverride ?? upstreamBody, { headers: upstreamHeaders }); } });
+  const app = createApp({ dataDir, now: () => 1793155200123, resetKey: 'this-boot-key', logger: { error() {} }, fetchImpl: async url => { upstreamCalls++; return new Response(typeof upstreamOverride === 'function' ? upstreamOverride(url) : upstreamOverride ?? upstreamBody, { headers: upstreamHeaders }); } });
   app.listen(0, '127.0.0.1');
   await once(app, 'listening');
   t.after(() => new Promise(resolve => { app.close(resolve); app.closeAllConnections(); }));
@@ -496,4 +496,34 @@ test('system links and downloads apply even-first and revert without updating so
   await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...sub, evenNodesFirst: false });
   assert.deepEqual(await groupNames(`/sub?key=${sub.key}`), original);
   assert.equal(f.upstreamCalls(), 1);
+});
+
+test('system links and downloads honor selected DNS sources and empty selection aggregates all', async t => {
+  const f = await fixture(t, undefined, {}, url => YAML.stringify({
+    dns: { nameserver: [String(url).includes('/two') ? 'https://two.example/dns-query' : 'https://one.example/dns-query'] },
+    proxies: [{ name: 'US', type: 'ss', server: 'us.example', port: 443 }]
+  }));
+  await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' }); await f.login();
+  const state = await (await f.request('/api/state')).json();
+  const one = await (await f.request('/api/sources', 'POST', { name: '来源一', url: 'https://provider.example/one' })).json();
+  const two = await (await f.request('/api/sources', 'POST', { name: '来源二', url: 'https://provider.example/two' })).json();
+  const input = { name: '指定DNS来源', sourceIds: [one.id, two.id], baseId: state.bases[0].id, templateId: state.templates[0].id, nameserverIds: state.nameservers.map(row => row.id), useSourceNameservers: true, nameserverSourceIds: [two.id] };
+  const created = await f.request('/api/subscriptions', 'POST', input);
+  assert.equal(created.status, 201);
+  const sub = await created.json();
+  assert.deepEqual(sub.nameserverSourceIds, [two.id]);
+  for (const path of [`/sub?key=${sub.key}`, `/api/subscriptions/${sub.id}/download`]) {
+    const result = await f.request(path);
+    assert.equal(result.status, 200);
+    const output = YAML.parse(await result.text());
+    assert.deepEqual(output.dns.nameserver, ['https://two.example/dns-query']);
+    assert.equal(output.proxies.length, 2);
+  }
+  assert.deepEqual((await (await f.request('/api/state')).json()).subscriptions[0].nameserverSourceIds, [two.id]);
+  assert.deepEqual((await (await f.request(`/api/subscriptions/${sub.id}`)).json()).nameserverSourceIds, [two.id]);
+  await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...input, nameserverSourceIds: [] });
+  const merged = YAML.parse(await (await f.request(`/sub?key=${sub.key}`)).text());
+  assert.deepEqual(merged.dns.nameserver, ['https://one.example/dns-query', 'https://two.example/dns-query']);
+  assert.equal((await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...input, nameserverSourceIds: ['missing'] })).status, 400);
+  assert.equal(f.upstreamCalls(), 2);
 });

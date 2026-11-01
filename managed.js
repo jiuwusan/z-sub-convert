@@ -47,7 +47,7 @@ class Managed {
     const record = find(this.store.read(), resource, id);
     const { cache, ...safe } = record;
     if (resource === 'sources') return { ...safe, updateMode: safe.updateMode ?? 'auto' };
-    if (resource === 'subscriptions') return { ...safe, removeFailover: safe.removeFailover ?? false, evenNodesFirst: safe.evenNodesFirst ?? false };
+    if (resource === 'subscriptions') return { ...safe, removeFailover: safe.removeFailover ?? false, evenNodesFirst: safe.evenNodesFirst ?? false, nameserverSourceIds: safe.nameserverSourceIds ?? [] };
     return safe;
   }
 
@@ -71,6 +71,7 @@ class Managed {
         ...row,
         removeFailover: row.removeFailover ?? false,
         evenNodesFirst: row.evenNodesFirst ?? false,
+        nameserverSourceIds: row.nameserverSourceIds ?? [],
         sourceNames: row.sourceIds.map(id => find(state, 'sources', id).name),
         templateName: find(state, 'templates', row.templateId).name,
         baseName: find(state, 'bases', row.baseId).name,
@@ -126,6 +127,9 @@ class Managed {
         throw new AppError('请选择不超过 50 个 nameserver');
       }
       if (input.useSourceNameservers !== undefined && typeof input.useSourceNameservers !== 'boolean') throw new AppError('订阅源 nameserver 开关无效');
+      if (input.nameserverSourceIds !== undefined && (!Array.isArray(input.nameserverSourceIds) || input.nameserverSourceIds.length > 50 || input.nameserverSourceIds.some(id => typeof id !== 'string'))) {
+        throw new AppError('请选择不超过 50 个 nameserver 来源');
+      }
       if (input.removeFailover !== undefined && typeof input.removeFailover !== 'boolean') throw new AppError('移除故障转移组选项须为布尔值');
       if (input.evenNodesFirst !== undefined && typeof input.evenNodesFirst !== 'boolean') throw new AppError('偶数节点前置选项须为布尔值');
       if (!input.useSourceNameservers && !input.nameserverIds.length) throw new AppError('请至少选择一个 nameserver');
@@ -138,6 +142,11 @@ class Managed {
       if (resource === 'subscriptions') {
         fields.removeFailover = input.removeFailover ?? existing?.removeFailover ?? false;
         fields.evenNodesFirst = input.evenNodesFirst ?? existing?.evenNodesFirst ?? false;
+        const dnsSourceIds = input.nameserverSourceIds ?? existing?.nameserverSourceIds ?? [];
+        if (input.nameserverSourceIds !== undefined && dnsSourceIds.some(id => !fields.sourceIds.includes(id))) {
+          throw new AppError('nameserver 来源必须是当前订阅关联的第三方订阅源');
+        }
+        fields.nameserverSourceIds = [...new Set(dnsSourceIds)].filter(id => fields.sourceIds.includes(id));
         for (const sourceId of fields.sourceIds) find(state, 'sources', sourceId);
         find(state, 'templates', fields.templateId);
         find(state, 'bases', fields.baseId);
@@ -289,7 +298,7 @@ class Managed {
 
   configuration(state, sub) {
     return JSON.stringify([sub.sourceIds, sub.templateId, find(state, 'templates', sub.templateId).content,
-      sub.baseId, find(state, 'bases', sub.baseId).content, sub.useSourceNameservers, sub.nameserverIds, sub.removeFailover ?? false, sub.evenNodesFirst ?? false,
+      sub.baseId, find(state, 'bases', sub.baseId).content, sub.useSourceNameservers, sub.nameserverIds, sub.nameserverSourceIds ?? [], sub.removeFailover ?? false, sub.evenNodesFirst ?? false,
       sub.nameserverIds.map(id => find(state, 'nameservers', id).address),
       sub.sourceIds.map(id => { const source = find(state, 'sources', id); return [source.revision, source.updateMode ?? 'auto']; })]);
   }
@@ -310,7 +319,9 @@ class Managed {
       if (failed) throw failed.reason;
       const sources = results.map(result => result.value);
       if (sources.some((result, index) => result.revision !== find(snapshot, 'sources', sourceIds[index]).revision)) continue;
-      const nameservers = chooseNameservers(current.useSourceNameservers, sources.map(result => result.nameservers),
+      const dnsSourceIds = current.nameserverSourceIds ?? [];
+      const dnsSources = sources.filter((_, index) => !dnsSourceIds.length || dnsSourceIds.includes(sourceIds[index]));
+      const nameservers = chooseNameservers(current.useSourceNameservers, dnsSources.map(result => result.nameservers),
         current.nameserverIds.map(id => find(latest, 'nameservers', id).address));
       const template = composeTemplate(find(latest, 'bases', current.baseId).content, find(latest, 'templates', current.templateId).content, nameservers);
       const body = YAML.stringify(transformConfig(template, sources.map(result => result.proxies), { removeFailover: current.removeFailover ?? false, evenNodesFirst: current.evenNodesFirst ?? false }), { lineWidth: 0 });

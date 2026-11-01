@@ -244,7 +244,10 @@ function render() {
       }
       cell(row, templates);
       const dns = node('div', 'subscription-config');
-      dns.append(node('div', '', record.useSourceNameservers ? '订阅源优先' : '手动配置'));
+      const dnsSourceIds = record.nameserverSourceIds ?? [];
+      const dnsMode = node('div', 'config-value', record.useSourceNameservers ? dnsSourceIds.length ? '指定来源 nameserver' : '全部来源聚合' : '手动配置');
+      if (record.useSourceNameservers && dnsSourceIds.length) dnsMode.title = record.sourceIds.filter(id => dnsSourceIds.includes(id)).map(id => data.sources.find(source => source.id === id)?.name).join('、');
+      dns.append(dnsMode);
       const dnsNames = node('div', 'config-value muted', `${record.useSourceNameservers ? '备用：' : ''}${record.nameserverNames.join('、') || '未选择'}`);
       dnsNames.title = dnsNames.textContent;
       dns.append(dnsNames);
@@ -390,6 +393,28 @@ async function edit(resource, id) {
     const sourceDns = node('label', 'source-option');
     const useSource = node('input'); useSource.type = 'checkbox'; useSource.name = 'useSourceNameservers'; useSource.checked = record.useSourceNameservers ?? false;
     sourceDns.append(useSource, node('span', '', '使用订阅源 nameserver'));
+    const sourceDnsSection = node('div');
+    const sourceDnsTitle = node('span', 'field-title', 'Nameserver 来源（可多选，不选则聚合全部来源）');
+    sourceDnsTitle.id = 'nameserver-source-label';
+    const sourceDnsList = node('div', 'nameserver-options'); sourceDnsList.setAttribute('role', 'group'); sourceDnsList.setAttribute('aria-labelledby', sourceDnsTitle.id);
+    const selectedDnsSources = new Set(record.nameserverSourceIds ?? []);
+    const renderDnsSources = () => {
+      const associatedIds = [...list.querySelectorAll('input:checked')].map(input => input.value);
+      for (const id of selectedDnsSources) if (!associatedIds.includes(id)) selectedDnsSources.delete(id);
+      sourceDnsList.replaceChildren();
+      if (!associatedIds.length) sourceDnsList.append(node('p', 'field-help', '请先选择第三方订阅源。'));
+      for (const id of associatedIds) {
+        const source = state.data.sources.find(item => item.id === id);
+        const label = node('label', 'nameserver-tag'); label.title = source.name;
+        const check = node('input'); check.type = 'checkbox'; check.name = 'nameserverSourceIds'; check.value = id; check.checked = selectedDnsSources.has(id);
+        check.addEventListener('change', () => { if (check.checked) selectedDnsSources.add(id); else selectedDnsSources.delete(id); });
+        label.append(check, node('span', '', source.name)); sourceDnsList.append(label);
+      }
+      sourceDnsSection.hidden = !useSource.checked;
+    };
+    sourceDnsSection.append(sourceDnsTitle, sourceDnsList, node('p', 'field-help', '仅使用勾选来源的 dns.nameserver；不选则合并当前订阅全部来源。所选来源均未提供时使用下方备用项。'));
+    list.addEventListener('change', renderDnsSources);
+    useSource.addEventListener('change', renderDnsSources); renderDnsSources();
     const dnsTitle = node('span', 'field-title');
     dnsTitle.id = 'nameserver-group-label';
     const dnsList = node('div', 'nameserver-options'); dnsList.setAttribute('role', 'group'); dnsList.setAttribute('aria-labelledby', dnsTitle.id);
@@ -403,9 +428,9 @@ async function edit(resource, id) {
       const caption = node('span', '', item.name);
       label.append(check, caption); dnsList.append(label);
     }
-    const updateDnsTitle = () => { dnsTitle.textContent = useSource.checked ? '备用 nameserver（所有来源未提供时使用，可多选）' : 'Nameserver（可多选，至少一项）'; };
+    const updateDnsTitle = () => { dnsTitle.textContent = useSource.checked ? '备用 nameserver（所选来源均未提供时使用，可多选）' : 'Nameserver（可多选，至少一项）'; };
     useSource.addEventListener('change', updateDnsTitle); updateDnsTitle();
-    fields.append(sourceDns, dnsTitle, dnsList, node('p', 'field-help', '勾选后优先合并来源缓存中的 dns.nameserver，全部来源均未提供时才使用备用项；手动选择始终可用。保存不拉取，访问时按需更新缓存。'));
+    fields.append(sourceDns, sourceDnsSection, dnsTitle, dnsList, node('p', 'field-help', '使用订阅源 nameserver 时优先读取所选来源缓存，均未提供时才使用备用项；手动选择始终可用。保存不拉取，访问时按需更新缓存。'));
   }
   $('#editor-error').hidden = true;
   $('#editor').showModal();
@@ -612,6 +637,7 @@ $('#editor-form').addEventListener('submit', async event => {
     else {
       body.sourceIds = form.getAll('sourceIds'); body.templateId = form.get('templateId');
       body.baseId = form.get('baseId'); body.nameserverIds = form.getAll('nameserverIds'); body.useSourceNameservers = form.has('useSourceNameservers');
+      body.nameserverSourceIds = form.getAll('nameserverSourceIds');
       body.removeFailover = form.has('removeFailover');
       body.evenNodesFirst = form.has('evenNodesFirst');
       if (!body.sourceIds.length) throw Error('请至少选择一个第三方订阅源');

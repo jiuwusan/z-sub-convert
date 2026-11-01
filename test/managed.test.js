@@ -493,3 +493,77 @@ test('applies the latest even-first setting during pending upstream reads', asyn
   assert.deepEqual(usGroup((await pending).body), sortedUsNames);
   assert.equal(f.calls.length, 2);
 });
+
+test('selects DNS sources independently of node aggregation and preserves cached selections across restart', async t => {
+  const f = await fixture(t);
+  f.sourceDns.one = ['https://one.example/dns-query', 'https://shared.example/dns-query'];
+  f.sourceDns.two = ['https://two.example/dns-query', 'https://shared.example/dns-query'];
+  assert.deepEqual(f.sub.nameserverSourceIds, []);
+  const ns = body => YAML.parse(body).dns.nameserver;
+  await f.service.save('subscriptions', { ...f.sub, useSourceNameservers: true }, f.sub.id);
+  const merged = await f.service.content(f.sub.key);
+  assert.deepEqual(ns(merged.body), [f.sourceDns.one[0], f.sourceDns.one[1], f.sourceDns.two[0]]);
+  const selected = { ...f.sub, useSourceNameservers: true, nameserverSourceIds: [f.two.id, f.two.id] };
+  await f.service.save('subscriptions', selected, f.sub.id);
+  const chosen = await f.service.content(f.sub.key);
+  assert.deepEqual(ns(chosen.body), f.sourceDns.two);
+  assert.equal(YAML.parse(chosen.body).proxies.length, 2, 'DNS selection does not filter nodes');
+  assert.deepEqual(f.service.list().subscriptions[0].nameserverSourceIds, [f.two.id]);
+  const { nameserverSourceIds, ...omitted } = f.service.get('subscriptions', f.sub.id);
+  await f.service.save('subscriptions', omitted, f.sub.id);
+  assert.deepEqual(f.service.get('subscriptions', f.sub.id).nameserverSourceIds, [f.two.id]);
+  const restarted = new Managed(await Store.open(f.options), { now: () => 100000, fetchImpl: () => { throw Error('cached only'); } });
+  assert.deepEqual(restarted.get('subscriptions', f.sub.id).nameserverSourceIds, [f.two.id]);
+  assert.deepEqual(ns((await restarted.content(f.sub.key)).body), f.sourceDns.two);
+  await f.service.save('subscriptions', { ...selected, nameserverSourceIds: [f.two.id, f.one.id] }, f.sub.id);
+  assert.deepEqual(ns((await f.service.content(f.sub.key)).body), ns(merged.body));
+  await f.service.save('subscriptions', { ...selected, nameserverSourceIds: [] }, f.sub.id);
+  assert.deepEqual(ns((await f.service.content(f.sub.key)).body), ns(merged.body));
+  await f.store.update(state => { delete state.subscriptions[0].nameserverSourceIds; });
+  assert.deepEqual(f.service.get('subscriptions', f.sub.id).nameserverSourceIds, []);
+  assert.deepEqual(f.service.list().subscriptions[0].nameserverSourceIds, []);
+  assert.equal(f.calls.length, 2);
+});
+
+test('selected sources without DNS use manual fallback instead of unselected sources', async t => {
+  const f = await fixture(t);
+  f.sourceDns.one = ['https://one.example/dns-query'];
+  const selected = { ...f.sub, useSourceNameservers: true, nameserverSourceIds: [f.two.id] };
+  await f.service.save('subscriptions', selected, f.sub.id);
+  const manual = f.sub.nameserverIds.map(id => f.service.get('nameservers', id).address);
+  assert.deepEqual(YAML.parse((await f.service.content(f.sub.key)).body).dns.nameserver, manual);
+  await f.service.save('subscriptions', { ...selected, nameserverIds: [] }, f.sub.id);
+  await assert.rejects(f.service.content(f.sub.key), /nameserver/);
+  await f.service.save('subscriptions', { ...selected, useSourceNameservers: false, nameserverSourceIds: [f.one.id] }, f.sub.id);
+  assert.deepEqual(YAML.parse((await f.service.content(f.sub.key)).body).dns.nameserver, manual);
+  assert.deepEqual(f.service.get('subscriptions', f.sub.id).nameserverSourceIds, [f.one.id]);
+  assert.equal(f.calls.length, 2);
+});
+
+test('validates DNS source IDs and removes stale selections when associated sources change', async t => {
+  const f = await fixture(t);
+  for (const value of [null, true, 'bad', [1], Array(51).fill(f.one.id), ['missing']]) {
+    await assert.rejects(f.service.save('subscriptions', { ...f.sub, nameserverSourceIds: value }, f.sub.id), /nameserver/);
+  }
+  const outsider = await f.service.save('sources', { name: '未关联', url: 'https://outside.example/sub' });
+  await assert.rejects(f.service.save('subscriptions', { ...f.sub, nameserverSourceIds: [outsider.id] }, f.sub.id), /nameserver/);
+  await f.service.save('subscriptions', { ...f.sub, nameserverSourceIds: [f.one.id] }, f.sub.id);
+  const { nameserverSourceIds, ...omitted } = f.service.get('subscriptions', f.sub.id);
+  await f.service.save('subscriptions', { ...omitted, sourceIds: [f.two.id] }, f.sub.id);
+  assert.deepEqual(f.service.get('subscriptions', f.sub.id).nameserverSourceIds, []);
+  assert.deepEqual(f.service.list().subscriptions[0].sourceIds, [f.two.id]);
+});
+
+test('uses latest DNS source selection after pending source reads without extra fetches', async t => {
+  const f = await fixture(t);
+  f.sourceDns.one = ['https://one.example/dns-query'];
+  f.sourceDns.two = ['https://two.example/dns-query'];
+  await f.service.save('subscriptions', { ...f.sub, useSourceNameservers: true }, f.sub.id);
+  let release; f.hold(new Promise(resolve => { release = resolve; }));
+  const pending = f.service.content(f.sub.key);
+  await new Promise(resolve => setImmediate(resolve));
+  await f.service.save('subscriptions', { ...f.sub, useSourceNameservers: true, nameserverSourceIds: [f.two.id] }, f.sub.id);
+  release();
+  assert.deepEqual(YAML.parse((await pending).body).dns.nameserver, f.sourceDns.two);
+  assert.equal(f.calls.length, 2);
+});
