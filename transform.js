@@ -1,6 +1,20 @@
 'use strict';
 
 const { detectCountry, compareCountries } = require('./country');
+
+const DEFAULT_COUNTRY_GROUP_TYPE = 'fallback';
+const DEFAULT_COUNTRY_TEST_URL = 'http://www.gstatic.com/generate_204';
+const COUNTRY_GROUP_TYPES = Object.freeze(['fallback', 'url-test', 'select', 'load-balance']);
+
+function countryGroupOptions({ countryGroupType = DEFAULT_COUNTRY_GROUP_TYPE, countryTestUrl = DEFAULT_COUNTRY_TEST_URL } = {}) {
+  if (!COUNTRY_GROUP_TYPES.includes(countryGroupType)) throw new TypeError('国家分组类型无效');
+  if (typeof countryTestUrl !== 'string' || !countryTestUrl.trim() || countryTestUrl.length > 8192 || /[\x00-\x1f\x7f]/.test(countryTestUrl)) throw new TypeError('国家分组测试 URL 须为有效 HTTP/HTTPS 地址');
+  const value = countryTestUrl.trim();
+  let url;
+  try { url = new URL(value); } catch { throw new TypeError('国家分组测试 URL 须为有效 HTTP/HTTPS 地址'); }
+  if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password) throw new TypeError('国家分组测试 URL 须为不带账户的 HTTP/HTTPS 地址');
+  return { countryGroupType, countryTestUrl: value };
+}
 const { isIP } = require('node:net');
 const { domainToASCII } = require('node:url');
 
@@ -114,7 +128,8 @@ function addProxyServerDirectRules(config) {
   return config;
 }
 
-function transformConfig(template, upstreamProxyLists, { removeFailover = false, evenNodesFirst = false, sourceNames } = {}) {
+function transformConfig(template, upstreamProxyLists, { removeFailover = false, evenNodesFirst = false, sourceNames, countryGroupType, countryTestUrl } = {}) {
+  const groupOptions = countryGroupOptions({ countryGroupType, countryTestUrl });
   if (!template || typeof template !== 'object' || Array.isArray(template)) {
     throw new TypeError('Template must be a YAML mapping');
   }
@@ -208,9 +223,9 @@ function transformConfig(template, upstreamProxyLists, { removeFailover = false,
     }
     return {
       name: assignedGroupName,
-      interval: 305,
-      type: 'fallback',
-      url: 'http://www.gstatic.com/generate_204',
+      type: groupOptions.countryGroupType,
+      ...(groupOptions.countryGroupType === 'select' ? {} : { interval: 305, url: groupOptions.countryTestUrl }),
+      ...(groupOptions.countryGroupType === 'load-balance' ? { strategy: 'consistent-hashing' } : {}),
       proxies: proxyNames
     };
   });
@@ -231,6 +246,9 @@ function transformConfig(template, upstreamProxyLists, { removeFailover = false,
 }
 
 module.exports = {
+  DEFAULT_COUNTRY_GROUP_TYPE,
+  DEFAULT_COUNTRY_TEST_URL,
+  countryGroupOptions,
   PROTOCOL_PRIORITY,
   addProxyServerDirectRules,
   transformConfig

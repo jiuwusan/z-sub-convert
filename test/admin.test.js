@@ -559,3 +559,36 @@ test('system downloads and public links expose source-scoped country groups in c
   }
   assert.equal(f.upstreamCalls(), 2);
 });
+
+test('system links and downloads apply country group type and test URL while retaining defaults', async t => {
+  const f = await fixture(t);
+  await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' }); await f.login();
+  const state = await (await f.request('/api/state')).json();
+  const source = await (await f.request('/api/sources', 'POST', { name: 'A', url: 'https://provider.example/sub' })).json();
+  const sub = await (await f.request('/api/subscriptions', 'POST', { name: '分组配置', sourceIds: [source.id], baseId: state.bases[0].id, templateId: state.templates[0].id, nameserverIds: state.nameservers.map(row => row.id) })).json();
+  assert.equal(sub.countryGroupType, 'fallback');
+  assert.equal(sub.countryTestUrl, 'http://www.gstatic.com/generate_204');
+  for (const countryGroupType of ['url-test', 'fallback', 'select', 'load-balance']) {
+    const saved = await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...sub, countryGroupType, countryTestUrl: 'https://test.example/check' });
+    assert.equal(saved.status, 200);
+    assert.equal((await saved.json()).countryGroupType, countryGroupType);
+    for (const path of [`/sub?key=${sub.key}`, `/api/subscriptions/${sub.id}/download`]) {
+      const response = await f.request(path);
+      assert.equal(response.status, 200);
+      const body = YAML.parse(await response.text());
+      const group = body['proxy-groups'].find(g => g.name === '🇺🇸 A SS 美国');
+      assert.equal(group.type, countryGroupType);
+      assert.equal(group.url, countryGroupType === 'select' ? undefined : 'https://test.example/check');
+      assert.equal(group.interval, countryGroupType === 'select' ? undefined : 305);
+      assert.equal(body['proxy-groups'].find(g => g.name === '🔰 故障转移').type, 'fallback');
+    }
+  }
+  const detail = await (await f.request(`/api/subscriptions/${sub.id}`)).json();
+  assert.equal(detail.countryTestUrl, 'https://test.example/check');
+  assert.equal((await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...sub, countryGroupType: 'bad' })).status, 400);
+  assert.equal((await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...sub, countryTestUrl: 'file:///secret' })).status, 400);
+  for (const countryTestUrl of ['https://test.example/a\tb', 'https://test.example/a\0b']) {
+    assert.equal((await f.request(`/api/subscriptions/${sub.id}`, 'PATCH', { ...sub, countryTestUrl })).status, 400);
+  }
+  assert.equal(f.upstreamCalls(), 1);
+});

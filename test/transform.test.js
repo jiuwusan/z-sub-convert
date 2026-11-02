@@ -170,6 +170,27 @@ test('rejects mismatched or invalid source-name metadata', () => {
   }
 });
 
+test('configures only generated country groups for each supported type', () => {
+  for (const countryGroupType of ['url-test', 'fallback', 'select', 'load-balance']) {
+    const template = makeTemplate();
+    const before = structuredClone(template);
+    const output = transformConfig(template, [[{ name: 'US', type: 'ss' }]], { countryGroupType, countryTestUrl: 'https://test.example/204', sourceNames: ['A'] });
+    const group = output['proxy-groups'].find(g => g.name === '🇺🇸 A SS 美国');
+    assert.equal(group.type, countryGroupType);
+    assert.equal(group.url, countryGroupType === 'select' ? undefined : 'https://test.example/204');
+    assert.equal(group.interval, countryGroupType === 'select' ? undefined : 305);
+    assert.equal(group.strategy, countryGroupType === 'load-balance' ? 'consistent-hashing' : undefined);
+    assert.deepEqual(group.proxies, ['🇺🇸 A 美国 01']);
+    assert.deepEqual(output['proxy-groups'][2], before['proxy-groups'][2]);
+    assert.deepEqual(template, before);
+  }
+});
+
+test('rejects invalid country group types and test URLs', () => {
+  for (const countryGroupType of ['bad', null, 1, '', 'relay']) assert.throws(() => transformConfig(makeTemplate(), [[]], { countryGroupType }), /国家分组/);
+  for (const countryTestUrl of ['', null, 1, 'ftp://test.example', 'http://', 'https://test.example/\npath', 'https://test.example/a\tb', 'https://test.example/a\0b', 'https://test.example/a\x7fb']) assert.throws(() => transformConfig(makeTemplate(), [[]], { countryTestUrl }), /测试 URL/);
+});
+
 test('pads proxy numbers to two digits without truncating 100', () => {
   const proxies = Array.from({ length: 100 }, (_, index) => ({
     name: `JP ${index + 1}`,

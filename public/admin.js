@@ -414,6 +414,19 @@ async function edit(resource, id) {
       if (record[name]) select.value = record[name];
       label.append(select); fields.append(label);
     }
+    const countryTypeLabel = node('label', '', '国家分组类型');
+    const countryType = node('select'); countryType.name = 'countryGroupType'; countryType.required = true;
+    for (const [value, title] of [['fallback', 'fallback · 故障转移'], ['url-test', 'url-test · 自动测速'], ['select', 'select · 手动选择'], ['load-balance', 'load-balance · 负载均衡']]) {
+      const option = node('option', '', title); option.value = value; countryType.append(option);
+    }
+    countryType.value = record.countryGroupType ?? 'fallback'; countryTypeLabel.append(countryType);
+    const countryUrl = field('国家分组测试 URL', 'countryTestUrl', record.countryTestUrl ?? 'http://www.gstatic.com/generate_204', { type: 'url', maxLength: 8192 });
+    const countryHelp = node('p', 'field-help');
+    const updateCountryHelp = () => { countryHelp.textContent = countryType.value === 'select'
+      ? 'select 为手动选择，不输出自动测速 URL 和间隔；此处 URL 会保留，切换为自动类型后生效。'
+      : '仅用于自动生成的国家分组，测试间隔为 305 秒；load-balance 使用 consistent-hashing 策略。'; };
+    countryType.addEventListener('change', updateCountryHelp); updateCountryHelp();
+    fields.append(countryTypeLabel, countryUrl.label, countryHelp);
     const failoverOption = node('label', 'source-option');
     const removeFailover = node('input'); removeFailover.type = 'checkbox'; removeFailover.name = 'removeFailover'; removeFailover.checked = record.removeFailover ?? false;
     failoverOption.append(removeFailover, node('span', '', '移除“🔰 故障转移”组'));
@@ -672,6 +685,7 @@ $('#editor-form').addEventListener('submit', async event => {
       body.nameserverSourceIds = form.getAll('nameserverSourceIds');
       body.removeFailover = form.has('removeFailover');
       body.evenNodesFirst = form.has('evenNodesFirst');
+      body.countryGroupType = form.get('countryGroupType'); body.countryTestUrl = form.get('countryTestUrl');
       if (!body.sourceIds.length) throw Error('请至少选择一个第三方订阅源');
       if (!body.useSourceNameservers && !body.nameserverIds.length) throw Error('请至少选择一个 nameserver');
     }

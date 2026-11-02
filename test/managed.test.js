@@ -598,3 +598,48 @@ test('uses the latest source name changed during pending reads', async t => {
   assert.ok(output['proxy-groups'].some(group => group.name === '🇺🇸 新名称 SS 美国'));
   assert.equal(f.calls.length, 2);
 });
+
+test('country group options persist per subscription with defaults, validation and cached output changes', async t => {
+  const f = await fixture(t);
+  assert.equal(f.sub.countryGroupType, 'fallback');
+  assert.equal(f.sub.countryTestUrl, 'http://www.gstatic.com/generate_204');
+  const template = f.service.get('templates', f.sub.templateId).content;
+  await f.service.content(f.sub.key);
+  for (const type of ['fallback', 'url-test', 'load-balance', 'select']) {
+    await f.service.save('subscriptions', { ...f.sub, countryGroupType: type, countryTestUrl: 'https://test.example/check' }, f.sub.id);
+    const body = YAML.parse((await f.service.content(f.sub.key)).body);
+    const generated = body['proxy-groups'].filter(group => group.name.includes(' SS '));
+    assert.equal(generated.length, 2);
+    assert.ok(generated.every(group => group.type === type));
+    assert.ok(generated.every(group => group.url === (type === 'select' ? undefined : 'https://test.example/check')));
+    assert.equal(f.calls.length, 2);
+  }
+  assert.equal(f.service.get('templates', f.sub.templateId).content, template);
+  const { countryGroupType, countryTestUrl, ...omitted } = f.service.get('subscriptions', f.sub.id);
+  await f.service.save('subscriptions', omitted, f.sub.id);
+  assert.equal(f.service.get('subscriptions', f.sub.id).countryGroupType, 'select');
+  assert.equal(f.service.get('subscriptions', f.sub.id).countryTestUrl, 'https://test.example/check');
+  const restarted = new Managed(await Store.open(f.options), { now: () => 100000, fetchImpl: () => { throw Error('cached only'); } });
+  assert.equal(restarted.list().subscriptions[0].countryGroupType, 'select');
+  assert.equal(restarted.list().subscriptions[0].countryTestUrl, 'https://test.example/check');
+  const other = await f.service.save('subscriptions', { ...omitted, name: '其他订阅' });
+  assert.equal(other.countryTestUrl, 'http://www.gstatic.com/generate_204');
+  for (const options of [{countryGroupType:null},{countryGroupType:'bad'},{countryTestUrl:null},{countryTestUrl:''},{countryTestUrl:'ftp://bad.example'}]) {
+    await assert.rejects(f.service.save('subscriptions', { ...f.sub, ...options }, f.sub.id), /国家分组/);
+  }
+  await f.store.update(state => { delete state.subscriptions[0].countryGroupType; delete state.subscriptions[0].countryTestUrl; });
+  assert.equal(f.service.get('subscriptions', f.sub.id).countryGroupType, 'fallback');
+  assert.equal(f.service.list().subscriptions[0].countryTestUrl, 'http://www.gstatic.com/generate_204');
+  assert.ok(YAML.parse((await f.service.content(f.sub.key)).body)['proxy-groups'].filter(g => g.name.includes(' SS ')).every(g => g.type === 'fallback' && g.url === 'http://www.gstatic.com/generate_204'));
+});
+
+test('country group options changed during upstream reads use latest values without refetching', async t => {
+  const f = await fixture(t);
+  let release; f.hold(new Promise(resolve => { release = resolve; }));
+  const pending = f.service.content(f.sub.key);
+  await new Promise(resolve => setImmediate(resolve));
+  await f.service.save('subscriptions', { ...f.sub, countryGroupType: 'url-test', countryTestUrl: 'https://test.example/new' }, f.sub.id);
+  release();
+  assert.ok(YAML.parse((await pending).body)['proxy-groups'].filter(g => g.name.includes(' SS ')).every(g => g.type === 'url-test' && g.url === 'https://test.example/new'));
+  assert.equal(f.calls.length, 2);
+});
