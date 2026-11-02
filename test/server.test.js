@@ -64,6 +64,7 @@ test('converts multiple subscriptions and ignores target and unknown parameters'
     'attachment; filename="config-clash-meta-1789353600123.yaml"'
   );
   const output = YAML.parse(await response.text());
+  assert.deepEqual(output.rules.slice(0, 2), ['DOMAIN,one.example,DIRECT', 'DOMAIN,two.example,DIRECT']);
   assert.deepEqual(output.proxies.map(({ name }) => name), [
     '🇸🇬 新加坡 01', '🇯🇵 日本 01'
   ]);

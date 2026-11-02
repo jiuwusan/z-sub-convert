@@ -1,6 +1,8 @@
 'use strict';
 
 const { detectCountry, compareCountries } = require('./country');
+const { isIP } = require('node:net');
+const { domainToASCII } = require('node:url');
 
 const PROTOCOL_PRIORITY = Object.freeze([
   'ss',
@@ -89,6 +91,27 @@ function claimName(name, used) {
   for (let suffix = 2; used.has(candidate); suffix++) candidate = `${name} (${suffix})`;
   used.add(candidate);
   return candidate;
+}
+
+function addProxyServerDirectRules(config) {
+  const direct = new Set();
+  for (const proxy of config.proxies || []) {
+    if (typeof proxy?.server !== 'string') continue;
+    const value = proxy.server.trim();
+    if (!value || /[,\s/\\#?@%]/u.test(value)) continue;
+    const host = value.startsWith('[') && value.endsWith(']') ? value.slice(1, -1) : value;
+    const family = isIP(host);
+    if (family === 4) direct.add(`IP-CIDR,${host}/32,DIRECT,no-resolve`);
+    else if (family === 6) {
+      const address = new URL(`http://[${host}]/`).hostname.slice(1, -1);
+      direct.add(`IP-CIDR6,${address}/128,DIRECT,no-resolve`);
+    } else {
+      const domain = domainToASCII(host).replace(/\.$/u, '').toLowerCase();
+      if (domain && /^[a-z0-9_.-]+$/u.test(domain) && !domain.includes('..')) direct.add(`DOMAIN,${domain},DIRECT`);
+    }
+  }
+  if (direct.size) config.rules = [...direct, ...(config.rules || []).filter(rule => !direct.has(rule))];
+  return config;
 }
 
 function transformConfig(template, upstreamProxyLists, { removeFailover = false, evenNodesFirst = false, sourceNames } = {}) {
@@ -202,10 +225,13 @@ function transformConfig(template, upstreamProxyLists, { removeFailover = false,
   output['proxy-groups'].push(...generatedGroups);
   if (removeFailover) removeFailoverGroup(output, failover);
 
+  addProxyServerDirectRules(output);
+
   return output;
 }
 
 module.exports = {
   PROTOCOL_PRIORITY,
+  addProxyServerDirectRules,
   transformConfig
 };
