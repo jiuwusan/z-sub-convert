@@ -99,6 +99,38 @@ test('rejects invalid JSON and oversized requests and throttles login attempts',
   assert.equal((await fetch(f.base + '/sub?key=missing')).status, 404);
 });
 
+test('source website is optional, validated, persisted and editable without invalidating cache', async t => {
+  const f = await fixture(t);
+  await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' });
+  await f.login();
+  const input = { name: '来源', url: 'https://provider.example/sub' };
+  const created = await f.request('/api/sources', 'POST', { ...input, website: ' https://provider.example/home#plans ' });
+  assert.equal(created.status, 201);
+  const source = await created.json();
+  assert.equal(source.website, 'https://provider.example/home#plans');
+  const path = `/api/sources/${source.id}`;
+  await f.request(`${path}/refresh`, 'POST', {});
+  for (const website of ['https://provider.example/new', '', '   ']) {
+    const response = await f.request(path, 'PATCH', { ...input, website });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).website, website.trim());
+    assert.equal((await (await f.request(path)).json()).website, website.trim());
+    const state = await (await f.request('/api/state')).json();
+    assert.equal(state.sources[0].website, website.trim());
+    assert.equal(state.sources[0].cacheStatus, 'valid');
+  }
+  for (const website of ['invalid', 'javascript:alert(1)', 'ftp://provider.example', 'https://user:pass@provider.example', 123, 'https://provider.example/' + 'a'.repeat(8192)]) {
+    assert.equal((await f.request(path, 'PATCH', { ...input, website })).status, 400);
+  }
+  assert.equal((await f.request('/api/sources', 'POST', input)).status, 201);
+  await f.request(path, 'PATCH', { ...input, website: 'https://provider.example' });
+  await f.request(path, 'PATCH', input);
+  const restarted = await fixture(t, f.dataDir);
+  await restarted.login();
+  assert.equal((await (await restarted.request(path)).json()).website, 'https://provider.example');
+  assert.equal(f.upstreamCalls(), 1);
+});
+
 test('downloads full source caches and generated subscriptions with name-timestamp filenames', async t => {
   const f = await fixture(t);
   await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' });

@@ -322,6 +322,9 @@ async function edit(resource, id) {
   const fields = $('#editor-fields');
   fields.replaceChildren(field('名称', 'name', record.name, { maxLength: 120, placeholder: resource === 'subscriptions' ? '例如：日常使用' : resource === 'sources' ? '例如：主力机场' : '例如：日常分流模板' }).label);
   if (resource === 'sources') {
+    const website = field('官网（可选）', 'website', record.website ?? '', { type: 'url', maxLength: 8192, placeholder: 'https://example.com' });
+    website.input.required = false;
+    fields.append(website.label);
     fields.append(field('第三方订阅链接', 'url', record.url, { type: 'url', maxLength: 8192, placeholder: 'https://example.com/subscribe?token=…' }).label);
     fields.append(field('User-Agent', 'userAgent', record.userAgent ?? 'clash-verge/v2.4.5', { maxLength: 512 }).label);
     const mode = node('label', 'source-option');
@@ -676,7 +679,7 @@ $('#editor-form').addEventListener('submit', async event => {
     const { resource, id } = state.editing;
     const form = new FormData(event.target);
     const body = { name: form.get('name') };
-    if (resource === 'sources') Object.assign(body, { url: form.get('url'), userAgent: form.get('userAgent'), updateMode: form.has('manualUpdate') ? 'manual' : 'auto' });
+    if (resource === 'sources') Object.assign(body, { website: form.get('website'), url: form.get('url'), userAgent: form.get('userAgent'), updateMode: form.has('manualUpdate') ? 'manual' : 'auto' });
     else if (['bases', 'templates'].includes(resource)) body.content = form.get('content');
     else if (resource === 'nameservers') body.address = form.get('address');
     else {

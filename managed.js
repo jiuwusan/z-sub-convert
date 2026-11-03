@@ -112,6 +112,16 @@ class Managed {
       if (!/^[\x20-\x7e]+$/.test(userAgent)) throw new AppError('User-Agent 只能包含可打印 ASCII 字符');
       if (input.updateMode !== undefined && !['auto', 'manual'].includes(input.updateMode)) throw new AppError('更新模式须为自动更新或仅手动更新');
       fields = { name, url: url.href, userAgent };
+      if (input.website !== undefined) {
+        if (typeof input.website !== 'string' || input.website.trim().length > 8192) throw new AppError('官网须为不超过 8192 个字符的网址');
+        const website = input.website.trim();
+        if (website) {
+          let parsed;
+          try { parsed = new URL(website); } catch { throw new AppError('官网格式无效'); }
+          if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new AppError('官网须为 HTTP/HTTPS，且不包含账号密码');
+        }
+        fields.website = website;
+      }
     } else if (resource === 'templates') {
       fields = { name, content: validateTemplate(input.content) };
     } else if (resource === 'bases') {
@@ -140,7 +150,10 @@ class Managed {
     }
     return this.store.update(state => {
       const existing = id ? find(state, resource, id) : null;
-      if (resource === 'sources') fields.updateMode = input.updateMode ?? existing?.updateMode ?? 'auto';
+      if (resource === 'sources') {
+        fields.updateMode = input.updateMode ?? existing?.updateMode ?? 'auto';
+        fields.website ??= existing?.website ?? '';
+      }
       if (resource === 'subscriptions') {
         try {
           Object.assign(fields, countryGroupOptions({
