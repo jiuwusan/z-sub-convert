@@ -5,7 +5,7 @@
   else root.SubConvertRoutes = routes;
 })(globalThis, function () {
   'use strict';
-  const pages = new Set(['subscriptions', 'sources', 'bases', 'nameservers', 'templates']);
+  const pages = new Set(['subscriptions', 'sources', 'bases', 'nameservers', 'templates', 'notifications']);
   const authPages = new Set(['login', 'setup', 'reset']);
   const destination = value => pages.has(value) ? value : 'subscriptions';
 

@@ -3,6 +3,7 @@
 const $ = selector => document.querySelector(selector);
 const state = { tab: 'subscriptions', data: { sources: [], bases: [], nameservers: [], templates: [], subscriptions: [] }, csrf: '', mode: 'login', initialized: false, authenticated: false, ready: false, route: '', returnTo: 'subscriptions', navigation: 0, editing: null, calls: null, previewContent: '', previewSourceId: null, refreshing: new Set(), allBusy: false };
 const labels = {
+  notifications: { title: '通知设置', description: '配置钉钉和飞书，接收套餐到期与剩余流量提醒。', add: '' },
   subscriptions: { title: '系统订阅', list: '全部订阅', add: '新增订阅', description: '组合来源、基础模板、DNS 和规则模板，生成专属订阅链接。', heads: ['订阅名称', '第三方来源', '模板配置', 'DNS 配置', '操作'] },
   sources: { title: '第三方订阅源', list: '全部来源', add: '新增来源', description: '维护并更新第三方来源，缓存结果供所有关联订阅复用。', heads: ['来源名称', '订阅链接摘要 / User-Agent', '关联订阅', '套餐信息', '缓存状态', '最近更新成功', '最近更新结果', '操作'] },
   bases: { title: '基础模板', list: '全部基础模板', add: '新增基础模板', description: '维护端口、运行模式与 DNS 基础设置，为系统订阅选择一份基础配置。', heads: ['模板名称', '关联订阅', '操作'] },
@@ -190,9 +191,18 @@ function render() {
   $('#refresh-all').hidden = tab !== 'sources';
   $('#refresh-all').disabled = state.allBusy || !data.sources.length;
   $('#refresh-all').textContent = state.allBusy ? '正在全部更新…' : '全部更新';
+  const notificationPage = tab === 'notifications';
+  $('#notification-form').hidden = !notificationPage;
+  $('.table-panel').hidden = notificationPage;
+  $('#stats').hidden = notificationPage;
+  $('#add-record').hidden = notificationPage;
   for (const button of document.querySelectorAll('[data-tab]')) {
     button.classList.toggle('active', button.dataset.tab === tab);
     button.setAttribute('aria-current', button.dataset.tab === tab ? 'page' : 'false');
+  }
+  if (notificationPage) {
+    loadNotificationSettings();
+    return;
   }
   $('#stat-subscriptions').textContent = data.subscriptions.length;
   $('#nav-count').textContent = data.subscriptions.length;
@@ -637,6 +647,48 @@ $('#auth-form').addEventListener('submit', async event => {
   } catch (error) { $('#auth-error').textContent = error.message; $('#auth-error').hidden = false; }
   finally { $('#auth-submit').disabled = false; }
 });
+let notificationLoad = 0;
+async function loadNotificationSettings() {
+  const navigation = state.navigation;
+  const sequence = ++notificationLoad;
+  const current = () => navigation === state.navigation && sequence === notificationLoad && state.tab === 'notifications';
+  $('#notification-fields').disabled = true;
+  $('#notification-status').textContent = '正在读取通知设置…';
+  try {
+    const settings = await api('/notifications');
+    if (!current()) return;
+    for (const channel of ['dingtalk', 'feishu']) {
+      $(`#${channel}-url`).value = settings[channel].url;
+      $(`#${channel}-secret`).value = settings[channel].secret;
+    }
+    $('#notification-status').textContent = '';
+    $('#notification-fields').disabled = false;
+  } catch (error) { if (current()) $('#notification-status').textContent = error.message; }
+}
+
+$('#notification-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const navigation = state.navigation;
+  $('#notification-fields').disabled = true;
+  const settings = {};
+  for (const channel of ['dingtalk', 'feishu']) settings[channel] = { url: $(`#${channel}-url`).value.trim(), secret: $(`#${channel}-secret`).value.trim() };
+  try {
+    await api('/notifications', 'PUT', settings);
+    if (navigation === state.navigation) $('#notification-status').textContent = '通知设置已保存';
+  } catch (error) { if (navigation === state.navigation) $('#notification-status').textContent = error.message; }
+  finally { if (navigation === state.navigation) $('#notification-fields').disabled = false; }
+});
+for (const button of document.querySelectorAll('[data-test-channel]')) button.addEventListener('click', async () => {
+  const navigation = state.navigation;
+  $('#notification-fields').disabled = true;
+  $('#notification-status').textContent = '正在发送测试通知…';
+  try {
+    await api(`/notifications/test/${button.dataset.testChannel}`, 'POST', {});
+    if (navigation === state.navigation) $('#notification-status').textContent = '测试通知已发送';
+  } catch (error) { if (navigation === state.navigation) $('#notification-status').textContent = error.message; }
+  finally { if (navigation === state.navigation) $('#notification-fields').disabled = false; }
+});
+
 $('#auth-switch').addEventListener('click', () => navigate(state.mode === 'reset' ? 'login' : 'reset'));
 $('#logout').addEventListener('click', async () => {
   try { await api('/logout', 'POST', {}); showAuth('login'); }

@@ -73,3 +73,38 @@ test('a delayed close event cannot clear a newly reopened call-history view', as
   dialog.listeners.close();
   assert.equal(vm.runInContext('state.calls?.id', context), 'new-view');
 });
+
+test('notification settings populate saved channels and submit both optional URLs and signing secrets', async () => {
+  const { context, elements } = await copyHarness();
+  vm.runInContext('state.tab = "notifications";', context);
+  const settings = { dingtalk: { url: 'https://oapi.dingtalk.com/robot/send?access_token=test', secret: 'SEC-test' }, feishu: { url: '', secret: '' } };
+  const requests = [];
+  context.fetch = async (path, init) => {
+    requests.push({ path, init });
+    return { ok: true, json: async () => settings };
+  };
+  await context.loadNotificationSettings();
+  assert.equal(elements.get('#dingtalk-url').value, settings.dingtalk.url);
+  assert.equal(elements.get('#dingtalk-secret').value, 'SEC-test');
+  assert.equal(elements.get('#feishu-url').value, '');
+  assert.equal(elements.get('#notification-fields').disabled, false);
+  elements.get('#dingtalk-url').value = '';
+  elements.get('#dingtalk-secret').value = '';
+  await elements.get('#notification-form').listeners.submit({ preventDefault() {} });
+  assert.equal(requests[1].path, '/api/notifications');
+  assert.equal(requests[1].init.method, 'PUT');
+  assert.deepEqual(JSON.parse(requests[1].init.body), { dingtalk: { url: '', secret: '' }, feishu: { url: '', secret: '' } });
+  assert.match(elements.get('#notification-status').textContent, /已保存/);
+});
+
+test('late notification settings cannot overwrite fields after navigation', async () => {
+  const { context, elements } = await copyHarness();
+  vm.runInContext('state.tab = "notifications";', context);
+  let respond;
+  context.fetch = () => new Promise(resolve => { respond = resolve; });
+  const loading = context.loadNotificationSettings();
+  vm.runInContext('state.navigation += 1;', context);
+  respond({ ok: true, json: async () => ({ dingtalk: { url: 'stale-secret', secret: '' }, feishu: { url: '', secret: '' } }) });
+  await loading;
+  assert.ok(!elements.has('#dingtalk-url'));
+});

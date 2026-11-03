@@ -18,6 +18,7 @@ const { Managed } = require('./managed');
 const { createAdminHandler } = require('./admin-api');
 const { sendDownload } = require('./download');
 const { CallRecords } = require('./call-records');
+const { Notifications } = require('./notifications');
 
 class TemplateError extends Error {
   constructor(message, options) {
@@ -78,8 +79,10 @@ function createApp(options = {}) {
     await sourceRecords.cleanup().catch(() => logger.error('Unable to clean source refresh records'));
     callRecords.start();
     sourceRecords.start();
-    const managed = new Managed(store, { ...options, callRecords, sourceRecords, logger, now, timeoutMs, maxBytes });
-    return { store, auth, managed, callRecords, sourceRecords, admin: createAdminHandler({ store, auth, managed, callRecords, sourceRecords, now }) };
+    const notifications = new Notifications(store, { now, logger, fetchImpl: options.notificationFetchImpl });
+    const managed = new Managed(store, { ...options, callRecords, sourceRecords, notifications, logger, now, timeoutMs, maxBytes });
+    notifications.start();
+    return { store, auth, managed, callRecords, sourceRecords, notifications, admin: createAdminHandler({ store, auth, managed, callRecords, sourceRecords, notifications, now }) };
   }) : Promise.resolve(null);
   ready.catch(() => {}); // Request/startup paths report initialization failures.
   const assets = {
@@ -196,7 +199,7 @@ function createApp(options = {}) {
       sendJson(response, statusCode, { error: message }, headOnly);
     }
   });
-  server.once('close', () => { ready.then(context => context && Promise.all([context.callRecords.close(), context.sourceRecords.close()])).catch(() => {}); });
+  server.once('close', () => { ready.then(context => context && Promise.all([context.callRecords.close(), context.sourceRecords.close(), context.notifications.close()])).catch(() => {}); });
   server.ready = ready;
   return server;
 }

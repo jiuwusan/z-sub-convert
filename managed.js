@@ -260,6 +260,7 @@ class Managed {
         record.lastResult = { ok: true, message: '更新成功', at: this.now() };
       });
       if (previous) await this.discard(previous);
+      if (this.options.notifications) this.options.notifications.check().catch(() => this.options.logger?.error('套餐提醒检查失败'));
       return { id: source.id, name: source.name, ok: true, message: '更新成功' };
     } catch (error) {
       if (file) await this.discard(file);

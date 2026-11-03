@@ -1233,3 +1233,16 @@ dialog form {
     margin-right:22px
   }
 }
+.notification-panel {
+  max-width: 900px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+}
+.notification-panel fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.notification-channel { display: grid; gap: 16px; margin: 24px 0; }
+.notification-channel h2 { margin: 0; font-size: 18px; }
+.notification-channel label { display: grid; gap: 8px; }
+.notification-channel button { justify-self: start; }
+#notification-status { overflow-wrap: anywhere; }

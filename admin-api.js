@@ -37,7 +37,7 @@ function checkOrigin(request) {
   throw new AppError('请求来源不允许', 403);
 }
 
-function createAdminHandler({ managed, auth, store, callRecords, sourceRecords, now = Date.now }) {
+function createAdminHandler({ managed, auth, store, callRecords, sourceRecords, notifications, now = Date.now }) {
   const attempts = new Map();
   function rateLimit(request, path) {
     const now = Date.now();
@@ -97,6 +97,16 @@ function createAdminHandler({ managed, auth, store, callRecords, sourceRecords, 
       return;
     }
     if (path === '/api/state' && method === 'GET') { json(200, managed.list()); return; }
+    if (path === '/api/notifications') {
+      if (method === 'GET') json(200, notifications.settings());
+      else if (method === 'PUT') json(200, await notifications.save(await readJson(request)));
+      else throw new AppError('请求方法不允许', 405);
+      return;
+    }
+    if (path.startsWith('/api/notifications/test/') && method === 'POST') {
+      json(200, await notifications.test(path.slice('/api/notifications/test/'.length)));
+      return;
+    }
     if (path === '/api/sources/refresh-all' && method === 'POST') {
       json(200, { results: await managed.refreshAll() });
       return;

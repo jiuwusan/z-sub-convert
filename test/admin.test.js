@@ -99,6 +99,36 @@ test('rejects invalid JSON and oversized requests and throttles login attempts',
   assert.equal((await fetch(f.base + '/sub?key=missing')).status, 404);
 });
 
+test('webhook settings and test delivery require authentication and CSRF and integrate with source refresh', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.request('/api/notifications')).status, 401);
+  await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' });
+  await f.login();
+  const input = { dingtalk: { url: 'https://oapi.dingtalk.com/robot/send?access_token=test', secret: '' }, feishu: { url: '', secret: '' } };
+  assert.equal((await f.request('/api/notifications', 'PUT', input, { 'x-csrf-token': 'wrong' })).status, 403);
+  assert.equal((await f.request('/api/notifications', 'PUT', input)).status, 200);
+  assert.deepEqual(await (await f.request('/api/notifications')).json(), input);
+  const context = await f.app.ready;
+  const deliveries = [];
+  context.notifications.fetch = async (_url, init) => { deliveries.push(JSON.parse(init.body)); return new Response('{"errcode":0}'); };
+  assert.equal((await f.request('/api/notifications/test/dingtalk', 'POST', {})).status, 200);
+  assert.equal((await f.request('/api/notifications/test/feishu', 'POST', {})).status, 400);
+  assert.equal((await f.request('/api/notifications/test/unknown', 'POST', {})).status, 400);
+  assert.equal(deliveries.length, 1);
+  const source = await (await f.request('/api/sources', 'POST', { name: '来源', url: 'https://provider.example/sub' })).json();
+  context.managed.options.fetchImpl = async () => new Response(f.upstreamBody, { headers: { 'subscription-userinfo': 'total=100;upload=0;download=0' } });
+  assert.equal((await f.request(`/api/sources/${source.id}/refresh`, 'POST', {})).status, 200);
+  await context.notifications.check();
+  assert.equal(deliveries.length, 2);
+  assert.equal((await f.request(`/api/sources/${source.id}/refresh`, 'POST', {})).status, 200);
+  await context.notifications.check();
+  assert.equal(deliveries.length, 3, 'each successful low-traffic source update sends another alert');
+  await context.notifications.check();
+  assert.equal(deliveries.length, 3, 'checking an unchanged cache does not repeat traffic alerts');
+  const state = await (await f.request('/api/state')).json();
+  assert.ok(!JSON.stringify(state).includes('access_token'));
+});
+
 test('source website is optional, validated, persisted and editable without invalidating cache', async t => {
   const f = await fixture(t);
   await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' });

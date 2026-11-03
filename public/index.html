@@ -45,6 +45,7 @@
         <a href="#/nameservers" data-tab="nameservers" class="nav-item"><span class="nav-symbol">◎</span>Nameserver</a>
         <a href="#/bases" data-tab="bases" class="nav-item"><span class="nav-symbol">▤</span>基础模板</a>
         <a href="#/templates" data-tab="templates" class="nav-item"><span class="nav-symbol">☷</span>规则模板</a>
+        <a href="#/notifications" data-tab="notifications" class="nav-item"><span class="nav-symbol">♧</span>通知设置</a>
       </nav>
       <div class="sidebar-note"><span class="live-dot"></span>按需更新，稳定连接<p>缓存有效期 2 小时<br>更新失败保留上次有效内容</p></div>
       <div class="account"><span class="avatar">管</span><div><strong id="account-name">管理员</strong><small>管理员</small></div><button id="logout" class="text-button" title="退出登录">退出</button></div>
@@ -53,6 +54,27 @@
       <header class="topbar"><span>工作空间 <span class="slash">/</span> <strong id="breadcrumb">系统订阅</strong></span><span class="topbar-end"><span class="live-dot"></span>订阅服务</span></header>
       <div class="content">
         <div class="page-heading"><div><span class="eyebrow">SUBSCRIPTION WORKSPACE</span><h1 id="page-title">系统订阅</h1><p id="page-description" class="muted">将多个来源与模板组合，生成专属订阅链接。</p></div><div class="toolbar"><button id="reload" class="secondary" title="刷新当前列表">↻ 刷新</button><button id="refresh-all" class="secondary">全部更新</button><button id="add-record" class="primary">＋ 新增订阅</button></div></div>
+        <form id="notification-form" class="notification-panel" hidden>
+          <p class="field-help">套餐在 3 天内到期或已到期时，每个来源、每个渠道按北京时间每天提醒一次。剩余流量小于 30 GB 时，每次来源更新成功即提醒，不受每日次数限制（1 GB = 1024³ 字节）。</p>
+          <p class="field-help">启动后、每小时及来源更新成功后检查已有套餐数据，不主动拉取订阅。通知包含套餐数据更新时间；无套餐信息、无限流量或长期有效时跳过对应条件。</p>
+          <fieldset id="notification-fields" disabled>
+            <section class="notification-channel">
+              <h2>钉钉</h2>
+              <label>Webhook 链接（可选）<input id="dingtalk-url" type="url" maxlength="8192" placeholder="https://oapi.dingtalk.com/robot/send?access_token=…" autocomplete="off"></label>
+              <label>签名密钥（可选）<input id="dingtalk-secret" type="password" maxlength="512" placeholder="机器人开启加签时填写 SEC…" autocomplete="new-password"></label>
+              <button type="button" class="secondary" data-test-channel="dingtalk">发送钉钉测试通知</button>
+            </section>
+            <section class="notification-channel">
+              <h2>飞书</h2>
+              <label>Webhook 链接（可选）<input id="feishu-url" type="url" maxlength="8192" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/…" autocomplete="off"></label>
+              <label>签名密钥（可选）<input id="feishu-secret" type="password" maxlength="512" placeholder="机器人开启签名校验时填写" autocomplete="new-password"></label>
+              <button type="button" class="secondary" data-test-channel="feishu">发送飞书测试通知</button>
+            </section>
+            <p class="field-help">可同时配置两个渠道；留空链接并保存可关闭对应渠道。测试发送使用已保存配置，请先保存。机器人如设置关键词，请包含“套餐提醒”。</p>
+            <button id="save-notifications" type="submit" class="primary">保存通知设置</button>
+          </fieldset>
+          <p id="notification-status" role="status" aria-live="polite"></p>
+        </form>
         <div id="stats" class="stats">
           <div><span>系统订阅</span><strong id="stat-subscriptions">0</strong><small>固定地址，随时订阅</small></div>
           <div><span>有效来源缓存</span><strong id="stat-cached">0</strong><small>2 小时内更新成功</small></div>
