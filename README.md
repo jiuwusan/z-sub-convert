@@ -180,7 +180,14 @@ docker compose pull
 docker compose up -d
 ```
 
-从当前源码构建并运行可使用 `docker compose up -d --build`。
+从当前源码构建并运行：
+
+```bash
+docker build -t jiuwusan/z-sub-convert:latest .
+docker compose up -d
+```
+
+Dockerfile 先复制依赖清单并安装生产依赖，再通过 `COPY . .` 复制源码，源码变化可复用依赖安装层。`.dockerignore` 排除本地依赖、数据、环境配置、密钥、日志、测试和文档，新增运行模块无需再修改复制清单。
 
 镜像基于 `node:22-alpine`，通过 `pm2-runtime` 运行。PM2 的 `max_memory_restart` 设置为 `256M`，进程内存达到阈值后会自动重启。
 
