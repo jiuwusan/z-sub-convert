@@ -38,6 +38,11 @@ function validate(input) {
   return settings;
 }
 
+function escapeMarkdown(value) {
+  return String(value).replace(/[\r\n]+/g, ' ').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/[\\`*_[\]{}()#!|]/g, '\\$&');
+}
+
 function message(source, causes) {
   const info = source.cache.userInfo;
   let remaining = '未提供';
@@ -47,9 +52,10 @@ function message(source, causes) {
     remaining = `${(Number(bytes > 0n ? bytes : 0n) / Number(GB)).toFixed(2)} GB`;
   }
   const time = value => new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
-  return ['Sub Convert 套餐提醒', `来源：${source.name}`, ...causes,
-    `剩余流量：${remaining}`, `到期时间：${info.expire === '0' ? '长期有效' : info.expire ? time(Number(info.expire) * 1000) : '未提供'}`,
-    ...(source.website ? [`官网：${source.website}`] : []), `套餐数据更新时间：${time(source.lastSuccessAt)}`].join('\n');
+  const website = source.website ? new URL(source.website).href.replace(/[()<>\\]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`) : '';
+  return [`**来源：** ${escapeMarkdown(source.name)}`, '', '**预警原因**', ...causes.map(cause => `- ${cause}`), '',
+    `**剩余流量：** ${remaining}`, `**到期时间：** ${info.expire === '0' ? '长期有效' : info.expire ? time(Number(info.expire) * 1000) : '未提供'}`,
+    ...(website ? ['', `[访问官网](${website})`] : []), '', `套餐数据更新时间：${time(source.lastSuccessAt)}（北京时间）`].join('\n');
 }
 
 class Notifications {
@@ -72,9 +78,13 @@ class Notifications {
     return settings;
   }
 
-  async send(channel, config, content) {
+  async send(channel, config, content, title = 'Mihomo 通知测试') {
     const url = new URL(config.url);
-    const body = channel === 'dingtalk' ? { msgtype: 'text', text: { content } } : { msg_type: 'text', content: { text: content } };
+    const body = channel === 'dingtalk'
+      ? { msgtype: 'markdown', markdown: { title, text: `### ⚠️ ${title}\n\n${content}` } }
+      : { msg_type: 'interactive', card: { schema: '2.0',
+        header: { title: { tag: 'plain_text', content: `⚠️ ${title}` }, template: 'orange' },
+        body: { elements: [{ tag: 'markdown', content }] } } };
     if (config.secret) {
       const timestamp = String(channel === 'dingtalk' ? this.now() : Math.floor(this.now() / 1000));
       if (channel === 'dingtalk') {
@@ -98,7 +108,7 @@ class Notifications {
     if (!Object.hasOwn(CHANNELS, channel)) throw new AppError('通知渠道无效');
     const config = this.settings()[channel];
     if (!config.url) throw new AppError('请先保存该渠道的 Webhook 地址');
-    await this.send(channel, config, 'Sub Convert 套餐提醒：测试通知发送成功。');
+    await this.send(channel, config, '**测试通知发送成功。**\n\n当前渠道已连接，可接收套餐到期和剩余流量预警。');
     return { ok: true };
   }
 
@@ -137,7 +147,9 @@ class Notifications {
           ? previous.day !== day : previous.trafficVersion !== trafficVersion);
         if (!pendingCauses.length) continue;
         try {
-          await this.send(channel, config, message(source, pendingCauses));
+          const title = [pendingCauses.includes(TRAFFIC_REASON) ? 'Mihomo 流量预警' : '',
+            pendingCauses.includes(EXPIRY_REASON) ? 'Mihomo 套餐即将到期' : ''].filter(Boolean).join(' / ');
+          await this.send(channel, config, message(source, pendingCauses), title);
           const successDay = Math.floor((this.now() + 8 * 3600000) / DAY);
           await this.store.update(state => {
             state.notifications ??= { settings, sent: {} };

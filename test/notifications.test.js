@@ -52,17 +52,57 @@ test('notification configuration validates platform URLs and survives restart', 
   assert.equal(f.sent.length, 0);
 });
 
+test('alerts use DingTalk Markdown and Feishu Markdown cards with escaped names and clickable official sites', async t => {
+  const f = await fixture(t);
+  await f.service.save(settings);
+  await f.store.update(state => {
+    state.sources[0].name = '机场*[测试]<at id=all>\n新行';
+    state.sources[0].website = 'https://provider.example/plans(annual)?from=notice';
+  });
+  await f.service.check();
+  const ding = f.sent[0].body;
+  assert.equal(ding.msgtype, 'markdown');
+  assert.equal(ding.markdown.title, 'Mihomo 流量预警 / Mihomo 套餐即将到期');
+  assert.match(ding.markdown.text, /^### ⚠️ Mihomo 流量预警 \/ Mihomo 套餐即将到期\n/);
+  assert.ok(ding.markdown.text.includes('机场\\*\\[测试\\]&lt;at id=all&gt; 新行'));
+  assert.match(ding.markdown.text, /\*\*剩余流量：\*\* 29.00 GB/);
+  assert.ok(ding.markdown.text.includes('[访问官网](https://provider.example/plans%28annual%29?from=notice)'));
+  const feishu = f.sent[1].body;
+  assert.equal(feishu.msg_type, 'interactive');
+  assert.equal(feishu.card.schema, '2.0');
+  assert.equal(feishu.card.header.title.tag, 'plain_text');
+  assert.equal(feishu.card.header.title.content, '⚠️ Mihomo 流量预警 / Mihomo 套餐即将到期');
+  assert.equal(feishu.card.body.elements[0].tag, 'markdown');
+  assert.match(feishu.card.body.elements[0].content, /\*\*来源：\*\*/);
+  assert.doesNotMatch(JSON.stringify(feishu), /secret.example|<at id=all>/);
+});
+
+test('Markdown notifications omit missing website links and keep unknown/unlimited package fields readable', async t => {
+  const f = await fixture(t);
+  await f.service.save(settings);
+  await f.store.update(state => {
+    delete state.sources[0].website;
+    state.sources[0].cache.userInfo = { total: '0', expire: String(NOW / 1000 + 86400) };
+  });
+  await f.service.check();
+  assert.match(f.sent[0].body.markdown.text, /无限流量/);
+  assert.equal(f.sent[0].body.markdown.title, 'Mihomo 套餐即将到期');
+  assert.equal(f.sent[1].body.card.header.title.content, '⚠️ Mihomo 套餐即将到期');
+  assert.doesNotMatch(f.sent[0].body.markdown.text, /访问官网/);
+  assert.doesNotMatch(f.sent[1].body.card.body.elements[0].content, /访问官网/);
+});
+
 test('checks combine reasons, persist daily deduplication, isolate failures and retry unsuccessful channels', async t => {
   const f = await fixture(t);
   await f.service.save(settings);
   f.fail(true);
   await Promise.all([f.service.check(), f.service.check()]);
   assert.equal(f.sent.length, 2);
-  assert.match(f.sent[0].body.text.content, /来源一/);
-  assert.match(f.sent[0].body.text.content, /https:\/\/provider.example/);
+  assert.match(f.sent[0].body.markdown.text, /来源一/);
+  assert.match(f.sent[0].body.markdown.text, /https:\/\/provider.example/);
   assert.doesNotMatch(JSON.stringify(f.sent), /secret.example/);
-  assert.match(f.sent[0].body.text.content, /30\s*GB/);
-  assert.match(f.sent[0].body.text.content, /到期/);
+  assert.match(f.sent[0].body.markdown.text, /30\s*GB/);
+  assert.match(f.sent[0].body.markdown.text, /到期/);
   f.fail(false);
   await f.service.check();
   assert.equal(f.sent.length, 3);
@@ -87,7 +127,9 @@ test('signed test messages use platform payloads and business errors fail withou
   assert.ok(new URL(f.sent[0].url).searchParams.get('sign'));
   assert.equal(f.sent[1].body.timestamp, String(NOW / 1000));
   assert.ok(f.sent[1].body.sign);
-  assert.equal(f.sent[1].body.msg_type, 'text');
+  assert.equal(f.sent[1].body.msg_type, 'interactive');
+  assert.equal(f.sent[0].body.markdown.title, 'Mihomo 通知测试');
+  assert.equal(f.sent[1].body.card.header.title.content, '⚠️ Mihomo 通知测试');
   assert.equal(f.sent[0].init.redirect, 'error');
   assert.ok(f.sent[0].init.signal);
   f.fail(true);
@@ -172,17 +214,19 @@ test('expiry stays daily while subsequent updates still alert on low traffic', a
   await f.service.save({ ...settings, feishu: { url: '', secret: '' } });
   await f.store.update(state => { state.sources[0].cache.file = 'cache-1.yaml'; });
   await f.service.check();
-  assert.match(f.sent[0].body.text.content, /套餐将在/);
+  assert.match(f.sent[0].body.markdown.text, /套餐将在/);
   await f.store.update(state => { state.sources[0].cache.file = 'cache-2.yaml'; });
   await f.service.check();
   assert.equal(f.sent.length, 2);
-  assert.doesNotMatch(f.sent[1].body.text.content, /套餐将在/);
-  assert.match(f.sent[1].body.text.content, /剩余流量小于/);
+  assert.doesNotMatch(f.sent[1].body.markdown.text, /套餐将在/);
+  assert.match(f.sent[1].body.markdown.text, /剩余流量小于/);
+  assert.equal(f.sent[1].body.markdown.title, 'Mihomo 流量预警');
   f.tick(86400000);
   await f.service.check();
   assert.equal(f.sent.length, 3);
-  assert.match(f.sent[2].body.text.content, /套餐将在/);
-  assert.doesNotMatch(f.sent[2].body.text.content, /剩余流量小于/);
+  assert.match(f.sent[2].body.markdown.text, /套餐将在/);
+  assert.equal(f.sent[2].body.markdown.title, 'Mihomo 套餐即将到期');
+  assert.doesNotMatch(f.sent[2].body.markdown.text, /剩余流量小于/);
   await f.store.update(state => { state.sources[0].cache.file = 'cache-3.yaml'; state.sources[0].cache.userInfo.total = String(100n * GB); });
   await f.service.check();
   assert.equal(f.sent.length, 3);
