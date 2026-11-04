@@ -62,12 +62,16 @@
               <h2>钉钉</h2>
               <label>Webhook 链接（可选）<input id="dingtalk-url" type="url" maxlength="8192" placeholder="https://oapi.dingtalk.com/robot/send?access_token=…" autocomplete="off"></label>
               <label>签名密钥（可选）<input id="dingtalk-secret" type="password" maxlength="512" placeholder="机器人开启加签时填写 SEC…" autocomplete="new-password"></label>
+              <label>@ 对象手机号（可选）<input id="dingtalk-mention" type="tel" maxlength="21" placeholder="例如：13800138000" autocomplete="off"></label>
+              <p class="field-help">填写机器人所在群内一位成员的手机号，正式预警和测试通知都会 @ 此人；留空则不 @。</p>
               <button type="button" class="secondary" data-test-channel="dingtalk">发送钉钉测试通知</button>
             </section>
             <section class="notification-channel">
               <h2>飞书</h2>
               <label>Webhook 链接（可选）<input id="feishu-url" type="url" maxlength="8192" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/…" autocomplete="off"></label>
               <label>签名密钥（可选）<input id="feishu-secret" type="password" maxlength="512" placeholder="机器人开启签名校验时填写" autocomplete="new-password"></label>
+              <label>@ 对象 Open ID / User ID（可选）<input id="feishu-mention" type="text" maxlength="64" placeholder="例如：ou_xxxxxxxxx" autocomplete="off"></label>
+              <p class="field-help">填写机器人所在群内一位成员的有效 Open ID 或 User ID，不能填写姓名、手机号或邮箱。正式预警和测试通知都会 @ 此人；留空则不 @。</p>
               <button type="button" class="secondary" data-test-channel="feishu">发送飞书测试通知</button>
             </section>
             <p class="field-help">可同时配置两个渠道；留空链接并保存可关闭对应渠道。测试发送使用已保存配置，请先保存。机器人如设置关键词，请包含“Mihomo”。</p>

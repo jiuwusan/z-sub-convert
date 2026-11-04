@@ -104,7 +104,7 @@ test('webhook settings and test delivery require authentication and CSRF and int
   assert.equal((await f.request('/api/notifications')).status, 401);
   await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' });
   await f.login();
-  const input = { dingtalk: { url: 'https://oapi.dingtalk.com/robot/send?access_token=test', secret: '' }, feishu: { url: '', secret: '' } };
+  const input = { dingtalk: { url: 'https://oapi.dingtalk.com/robot/send?access_token=test', secret: '', mention: '13800138000' }, feishu: { url: '', secret: '', mention: '' } };
   assert.equal((await f.request('/api/notifications', 'PUT', input, { 'x-csrf-token': 'wrong' })).status, 403);
   assert.equal((await f.request('/api/notifications', 'PUT', input)).status, 200);
   assert.deepEqual(await (await f.request('/api/notifications')).json(), input);
@@ -115,11 +115,13 @@ test('webhook settings and test delivery require authentication and CSRF and int
   assert.equal((await f.request('/api/notifications/test/feishu', 'POST', {})).status, 400);
   assert.equal((await f.request('/api/notifications/test/unknown', 'POST', {})).status, 400);
   assert.equal(deliveries.length, 1);
+  assert.deepEqual(deliveries[0].at, { atMobiles: ['13800138000'], isAtAll: false });
   const source = await (await f.request('/api/sources', 'POST', { name: '来源', url: 'https://provider.example/sub' })).json();
   context.managed.options.fetchImpl = async () => new Response(f.upstreamBody, { headers: { 'subscription-userinfo': 'total=100;upload=0;download=0' } });
   assert.equal((await f.request(`/api/sources/${source.id}/refresh`, 'POST', {})).status, 200);
   await context.notifications.check();
   assert.equal(deliveries.length, 2);
+  assert.match(deliveries[1].markdown.text, /@13800138000$/);
   assert.equal((await f.request(`/api/sources/${source.id}/refresh`, 'POST', {})).status, 200);
   await context.notifications.check();
   assert.equal(deliveries.length, 3, 'each successful low-traffic source update sends another alert');

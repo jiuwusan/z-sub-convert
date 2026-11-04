@@ -34,6 +34,13 @@ function validate(input) {
       if (!valid || parsed.protocol !== 'https:' || parsed.port || parsed.username || parsed.password || parsed.hash) throw new AppError(`${CHANNELS[channel]}须使用官方 HTTPS Webhook 地址`);
     }
     settings[channel] = { url, secret };
+    if (item.mention !== undefined) {
+      if (typeof item.mention !== 'string' || item.mention.trim().length > 64) throw new AppError(`${CHANNELS[channel]} @ 对象格式无效`);
+      const mention = item.mention.trim();
+      const valid = channel === 'dingtalk' ? /^\+?\d{5,20}$/.test(mention) : /^[a-zA-Z0-9_-]{1,64}$/.test(mention) && mention.toLowerCase() !== 'all';
+      if (mention && !valid) throw new AppError(channel === 'dingtalk' ? '钉钉 @ 对象须填写单个群成员手机号' : '飞书 @ 对象须填写单个群成员 Open ID 或 User ID');
+      settings[channel].mention = mention;
+    }
   }
   return settings;
 }
@@ -86,11 +93,13 @@ class Notifications {
 
   async send(channel, config, content, title = 'Mihomo 通知测试') {
     const url = new URL(config.url);
+    if (config.mention) content += channel === 'dingtalk' ? `\n\n@${config.mention}` : `\n\n<at id=${config.mention}></at>`;
     const body = channel === 'dingtalk'
       ? { msgtype: 'markdown', markdown: { title, text: `### ⚠️ ${title}\n\n${content}` } }
       : { msg_type: 'interactive', card: { config: { wide_screen_mode: true },
         header: { title: { tag: 'plain_text', content: `⚠️ ${title}` }, template: 'red' },
         elements: [{ tag: 'div', text: { tag: 'lark_md', content } }] } };
+    if (channel === 'dingtalk' && config.mention) body.at = { atMobiles: [config.mention], isAtAll: false };
     if (config.secret) {
       const timestamp = String(channel === 'dingtalk' ? this.now() : Math.floor(this.now() / 1000));
       if (channel === 'dingtalk') {
@@ -143,7 +152,7 @@ class Notifications {
         const config = settings[channel];
         if (!config.url) continue;
         const key = `${channel}:${source.id}`;
-        const fingerprint = createHash('sha256').update(JSON.stringify(config)).digest('hex');
+        const fingerprint = createHash('sha256').update(JSON.stringify(config.mention ? config : { url: config.url, secret: config.secret })).digest('hex');
         const sent = snapshot.notifications?.sent?.[key];
         const day = Math.floor((this.now() + 8 * 3600000) / DAY);
         const previous = sent?.fingerprint === fingerprint ? sent : {};

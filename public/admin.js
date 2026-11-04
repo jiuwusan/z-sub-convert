@@ -660,6 +660,7 @@ async function loadNotificationSettings() {
     for (const channel of ['dingtalk', 'feishu']) {
       $(`#${channel}-url`).value = settings[channel].url;
       $(`#${channel}-secret`).value = settings[channel].secret;
+      $(`#${channel}-mention`).value = settings[channel].mention ?? '';
     }
     $('#notification-status').textContent = '';
     $('#notification-fields').disabled = false;
@@ -671,7 +672,7 @@ $('#notification-form').addEventListener('submit', async event => {
   const navigation = state.navigation;
   $('#notification-fields').disabled = true;
   const settings = {};
-  for (const channel of ['dingtalk', 'feishu']) settings[channel] = { url: $(`#${channel}-url`).value.trim(), secret: $(`#${channel}-secret`).value.trim() };
+  for (const channel of ['dingtalk', 'feishu']) settings[channel] = { url: $(`#${channel}-url`).value.trim(), secret: $(`#${channel}-secret`).value.trim(), mention: $(`#${channel}-mention`).value.trim() };
   try {
     await api('/notifications', 'PUT', settings);
     if (navigation === state.navigation) $('#notification-status').textContent = '通知设置已保存';

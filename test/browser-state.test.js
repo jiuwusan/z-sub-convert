@@ -77,7 +77,7 @@ test('a delayed close event cannot clear a newly reopened call-history view', as
 test('notification settings populate saved channels and submit both optional URLs and signing secrets', async () => {
   const { context, elements } = await copyHarness();
   vm.runInContext('state.tab = "notifications";', context);
-  const settings = { dingtalk: { url: 'https://oapi.dingtalk.com/robot/send?access_token=test', secret: 'SEC-test' }, feishu: { url: '', secret: '' } };
+  const settings = { dingtalk: { url: 'https://oapi.dingtalk.com/robot/send?access_token=test', secret: 'SEC-test', mention: '13800138000' }, feishu: { url: '', secret: '', mention: 'ou_member123' } };
   const requests = [];
   context.fetch = async (path, init) => {
     requests.push({ path, init });
@@ -87,13 +87,15 @@ test('notification settings populate saved channels and submit both optional URL
   assert.equal(elements.get('#dingtalk-url').value, settings.dingtalk.url);
   assert.equal(elements.get('#dingtalk-secret').value, 'SEC-test');
   assert.equal(elements.get('#feishu-url').value, '');
+  assert.equal(elements.get('#dingtalk-mention').value, '13800138000');
+  assert.equal(elements.get('#feishu-mention').value, 'ou_member123');
   assert.equal(elements.get('#notification-fields').disabled, false);
   elements.get('#dingtalk-url').value = '';
   elements.get('#dingtalk-secret').value = '';
   await elements.get('#notification-form').listeners.submit({ preventDefault() {} });
   assert.equal(requests[1].path, '/api/notifications');
   assert.equal(requests[1].init.method, 'PUT');
-  assert.deepEqual(JSON.parse(requests[1].init.body), { dingtalk: { url: '', secret: '' }, feishu: { url: '', secret: '' } });
+  assert.deepEqual(JSON.parse(requests[1].init.body), { dingtalk: { url: '', secret: '', mention: '13800138000' }, feishu: { url: '', secret: '', mention: 'ou_member123' } });
   assert.match(elements.get('#notification-status').textContent, /已保存/);
 });
 

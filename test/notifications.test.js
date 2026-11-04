@@ -99,6 +99,40 @@ test('Markdown notifications omit missing website links and keep unknown/unlimit
   assert.doesNotMatch(f.sent[1].body.card.elements[0].text.content, /访问官网/);
 });
 
+test('optional mention targets persist and are included in both test and alert messages', async t => {
+  const f = await fixture(t);
+  const configured = { dingtalk: { ...settings.dingtalk, mention: '13800138000' }, feishu: { ...settings.feishu, mention: 'ou_member123' } };
+  await f.service.save(configured);
+  assert.deepEqual(f.service.settings(), configured);
+  const restarted = new Notifications(await Store.open(f.options), { now: () => NOW, fetchImpl: f.fetchImpl });
+  assert.deepEqual(restarted.settings(), configured);
+  await restarted.test('dingtalk');
+  await restarted.test('feishu');
+  await restarted.check();
+  assert.equal(f.sent.length, 4);
+  for (const index of [0, 2]) {
+    assert.deepEqual(f.sent[index].body.at, { atMobiles: ['13800138000'], isAtAll: false });
+    assert.match(f.sent[index].body.markdown.text, /\n\n@13800138000$/);
+  }
+  for (const index of [1, 3]) assert.match(f.sent[index].body.card.elements[0].text.content, /\n\n<at id=ou_member123><\/at>$/);
+  await restarted.save({ ...configured, dingtalk: { ...configured.dingtalk, mention: '' }, feishu: { ...configured.feishu, mention: '' } });
+  await restarted.test('dingtalk');
+  await restarted.test('feishu');
+  assert.equal(f.sent[4].body.at, undefined);
+  assert.doesNotMatch(f.sent[4].body.markdown.text, /@13800138000/);
+  assert.doesNotMatch(f.sent[5].body.card.elements[0].text.content, /<at /);
+});
+
+test('mention validation rejects invalid types, injected tags and all-member mentions', async t => {
+  const f = await fixture(t);
+  for (const [channel, invalid] of [['dingtalk', ['name', '13800138000,13900139000', 123, '<at id=all>']], ['feishu', ['all', 'member@example.com', '<at id=all></at>', 'ou_x\nall', 'ou_x"', 123, 'a'.repeat(65)]]]) {
+    for (const mention of invalid) await assert.rejects(f.service.save({ ...settings, [channel]: { ...settings[channel], mention } }));
+  }
+  await f.service.save({ ...settings, dingtalk: { ...settings.dingtalk, mention: ' 13800138000 ' }, feishu: { ...settings.feishu, mention: ' member_123 ' } });
+  assert.equal(f.service.settings().dingtalk.mention, '13800138000');
+  assert.equal(f.service.settings().feishu.mention, 'member_123');
+});
+
 test('checks combine reasons, persist daily deduplication, isolate failures and retry unsuccessful channels', async t => {
   const f = await fixture(t);
   await f.service.save(settings);
