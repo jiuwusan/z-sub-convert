@@ -6,7 +6,7 @@ const { join } = require('node:path');
 const YAML = require('yaml');
 const { AppError } = require('./auth');
 const { fetchSubscriptionDocument, parseSubscriptionDocument, SubscriptionError } = require('./fetch-subscriptions');
-const { transformConfig, countryGroupOptions, DEFAULT_COUNTRY_GROUP_TYPE, DEFAULT_COUNTRY_TEST_URL } = require('./transform');
+const { transformConfig, countryGroupOptions, DEFAULT_COUNTRY_GROUP_TYPE, DEFAULT_COUNTRY_TEST_URL, DEFAULT_COUNTRY_TEST_INTERVAL } = require('./transform');
 const { aggregateUserinfo } = require('./userinfo');
 const { parseTemplate, validateRuleTemplate: validateTemplate, chooseNameservers, composeTemplate } = require('./template-parts');
 
@@ -47,7 +47,7 @@ class Managed {
     const record = find(this.store.read(), resource, id);
     const { cache, ...safe } = record;
     if (resource === 'sources') return { ...safe, updateMode: safe.updateMode ?? 'auto' };
-    if (resource === 'subscriptions') return { ...safe, removeFailover: safe.removeFailover ?? false, evenNodesFirst: safe.evenNodesFirst ?? false, nameserverSourceIds: safe.nameserverSourceIds ?? [], countryGroupType: safe.countryGroupType ?? DEFAULT_COUNTRY_GROUP_TYPE, countryTestUrl: safe.countryTestUrl ?? DEFAULT_COUNTRY_TEST_URL };
+    if (resource === 'subscriptions') return { ...safe, removeFailover: safe.removeFailover ?? false, evenNodesFirst: safe.evenNodesFirst ?? false, nameserverSourceIds: safe.nameserverSourceIds ?? [], countryGroupType: safe.countryGroupType ?? DEFAULT_COUNTRY_GROUP_TYPE, countryTestUrl: safe.countryTestUrl ?? DEFAULT_COUNTRY_TEST_URL, countryTestInterval: safe.countryTestInterval ?? DEFAULT_COUNTRY_TEST_INTERVAL };
     return safe;
   }
 
@@ -74,6 +74,7 @@ class Managed {
         nameserverSourceIds: row.nameserverSourceIds ?? [],
         countryGroupType: row.countryGroupType ?? DEFAULT_COUNTRY_GROUP_TYPE,
         countryTestUrl: row.countryTestUrl ?? DEFAULT_COUNTRY_TEST_URL,
+        countryTestInterval: row.countryTestInterval ?? DEFAULT_COUNTRY_TEST_INTERVAL,
         sourceNames: row.sourceIds.map(id => find(state, 'sources', id).name),
         templateName: find(state, 'templates', row.templateId).name,
         baseName: find(state, 'bases', row.baseId).name,
@@ -158,7 +159,8 @@ class Managed {
         try {
           Object.assign(fields, countryGroupOptions({
             countryGroupType: input.countryGroupType !== undefined ? input.countryGroupType : existing?.countryGroupType,
-            countryTestUrl: input.countryTestUrl !== undefined ? input.countryTestUrl : existing?.countryTestUrl
+            countryTestUrl: input.countryTestUrl !== undefined ? input.countryTestUrl : existing?.countryTestUrl,
+            countryTestInterval: input.countryTestInterval !== undefined ? input.countryTestInterval : existing?.countryTestInterval
           }));
         } catch (error) { throw new AppError(error.message); }
         fields.removeFailover = input.removeFailover ?? existing?.removeFailover ?? false;
@@ -322,6 +324,7 @@ class Managed {
     return JSON.stringify([sub.sourceIds, sub.templateId, find(state, 'templates', sub.templateId).content,
       sub.baseId, find(state, 'bases', sub.baseId).content, sub.useSourceNameservers, sub.nameserverIds, sub.nameserverSourceIds ?? [], sub.removeFailover ?? false, sub.evenNodesFirst ?? false,
       sub.countryGroupType ?? DEFAULT_COUNTRY_GROUP_TYPE, sub.countryTestUrl ?? DEFAULT_COUNTRY_TEST_URL,
+      sub.countryTestInterval ?? DEFAULT_COUNTRY_TEST_INTERVAL,
       sub.nameserverIds.map(id => find(state, 'nameservers', id).address),
       sub.sourceIds.map(id => { const source = find(state, 'sources', id); return [source.revision, source.updateMode ?? 'auto', source.name]; })]);
   }
@@ -352,6 +355,7 @@ class Managed {
         evenNodesFirst: current.evenNodesFirst ?? false,
         countryGroupType: current.countryGroupType ?? DEFAULT_COUNTRY_GROUP_TYPE,
         countryTestUrl: current.countryTestUrl ?? DEFAULT_COUNTRY_TEST_URL,
+        countryTestInterval: current.countryTestInterval ?? DEFAULT_COUNTRY_TEST_INTERVAL,
         sourceNames: sourceIds.map(id => find(latest, 'sources', id).name)
       }), { lineWidth: 0 });
       return { name: current.name, body, stale: sources.some(result => result.stale), ...this.packageInfo(sources.map(result => result.userInfo)) };

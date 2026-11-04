@@ -20,7 +20,7 @@
 
 系统订阅可勾选“移除‘故障转移’组”，默认不勾选。仅从该订阅的最终配置中移除顶层 `🔰 故障转移`，各国家/协议分组继续保留。“🚀 节点选择”对它的引用展开为原成员；AI 平台等其他组中的引用改为“🚀 节点选择”并去重，不自动引入国家分组，规则/子规则目标、DNS 地址片段和节点/provider override 的 `dialer-proxy` 引用改为 `🚀 节点选择`，避免常见引用失效。只修改生成结果，原规则模板及模板下载不变，保存规则模板仍要求两个必要分组。公开订阅和后台系统下载均应用选项，切换后无需更新来源缓存；旧记录默认保留故障转移组。
 
-新增/编辑系统订阅时可配置“国家分组类型”和“国家分组测试 URL”，统一应用于该订阅自动生成的国家分组，支持 `fallback`、`url-test`、`select`、`load-balance`。默认及旧记录缺字段时使用 `fallback`、`http://www.gstatic.com/generate_204`，自动测试间隔为 305 秒。`select` 不输出 `url`/`interval`，填写的 URL 仍保存供切回自动类型使用；`load-balance` 输出 `strategy: consistent-hashing`（[Mihomo 文档](https://wiki.metacubex.one/config/proxy-groups/load-balance/)）。对应 API 字段为 `countryGroupType`、`countryTestUrl`，更新时省略则保留原值；测试 URL 须为不带账户和控制字符的有效 HTTP/HTTPS 地址。配置持久化并参与生成指纹，公开订阅和后台下载一致；不修改模板既有分组，也不更新有效来源缓存。
+新增/编辑系统订阅时可配置“国家分组类型”、“国家分组测试间隔（秒）”和“国家分组测试 URL”，统一应用于该订阅自动生成的国家分组，支持 `fallback`、`url-test`、`select`、`load-balance`。默认及旧记录缺字段时使用 `fallback`、`http://www.gstatic.com/generate_204`，自动测试间隔默认 305 秒，可配置为 1–86400 的整数秒；旧记录缺少间隔时使用 305 秒。`select` 不输出 `url`/`interval`，填写的 URL 和间隔仍保存供切回自动类型使用；`load-balance` 输出 `strategy: consistent-hashing`（[Mihomo 文档](https://wiki.metacubex.one/config/proxy-groups/load-balance/)）。对应 API 字段为 `countryGroupType`、`countryTestUrl`、`countryTestInterval`，更新时省略则保留原值；测试 URL 须为不带账户和控制字符的有效 HTTP/HTTPS 地址。配置持久化并参与生成指纹，公开订阅和后台下载一致；不修改模板既有分组，也不更新有效来源缓存。
 
 勾选“使用订阅源 nameserver”后可多选 DNS 来源，仅限当前订阅已关联的源。不选时聚合全部关联来源；选中时仅合并所选来源的 `dns.nameserver`，按关联源顺序去重，所选源均未提供时使用手动备用项，不会改用未选来源。关闭来源模式后手动地址生效，DNS 来源选择保留。旧记录默认聚合全部来源；节点和套餐仍聚合全部关联源，来源缓存及更新规则不变。
 

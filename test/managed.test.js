@@ -633,6 +633,29 @@ test('country group options persist per subscription with defaults, validation a
   assert.ok(YAML.parse((await f.service.content(f.sub.key)).body)['proxy-groups'].filter(g => g.name.includes(' SS ')).every(g => g.type === 'fallback' && g.url === 'http://www.gstatic.com/generate_204'));
 });
 
+test('country test interval defaults, persists and survives omitted updates and select mode', async t => {
+  const f = await fixture(t);
+  assert.equal(f.sub.countryTestInterval, 305);
+  await f.service.content(f.sub.key);
+  const previousConfig = f.service.configuration(f.store.read(), f.sub);
+  await f.service.save('subscriptions', { ...f.sub, countryTestInterval: 120 }, f.sub.id);
+  const record = f.service.get('subscriptions', f.sub.id);
+  assert.notEqual(f.service.configuration(f.store.read(), record), previousConfig);
+  assert.ok(YAML.parse((await f.service.content(f.sub.key)).body)['proxy-groups'].filter(g => g.name.includes(' SS ')).every(g => g.interval === 120));
+  const { countryTestInterval, ...omitted } = record;
+  await f.service.save('subscriptions', { ...omitted, countryGroupType: 'select' }, f.sub.id);
+  assert.equal(f.service.get('subscriptions', f.sub.id).countryTestInterval, 120);
+  const restarted = new Managed(await Store.open(f.options), { now: () => 100000 });
+  assert.equal(restarted.list().subscriptions[0].countryTestInterval, 120);
+  await f.service.save('subscriptions', omitted, f.sub.id);
+  assert.ok(YAML.parse((await f.service.content(f.sub.key)).body)['proxy-groups'].filter(g => g.name.includes(' SS ')).every(g => g.interval === 120));
+  assert.equal(f.calls.length, 2);
+  await f.store.update(state => { delete state.subscriptions[0].countryTestInterval; });
+  assert.equal(f.service.get('subscriptions', f.sub.id).countryTestInterval, 305);
+  assert.equal(f.service.list().subscriptions[0].countryTestInterval, 305);
+  for (const value of [null, 0, -1, 1.5, '120', 86401]) await assert.rejects(f.service.save('subscriptions', { ...omitted, countryTestInterval: value }, f.sub.id), /间隔/);
+});
+
 test('country group options changed during upstream reads use latest values without refetching', async t => {
   const f = await fixture(t);
   let release; f.hold(new Promise(resolve => { release = resolve; }));

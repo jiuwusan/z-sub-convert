@@ -186,6 +186,20 @@ test('configures only generated country groups for each supported type', () => {
   }
 });
 
+test('custom country test intervals apply to automatic groups and leave template groups intact', () => {
+  for (const countryGroupType of ['fallback', 'url-test', 'load-balance', 'select']) {
+    const template = makeTemplate();
+    const original = structuredClone(template['proxy-groups']);
+    const result = transformConfig(template, [[{ name: 'US', type: 'ss' }]], { countryGroupType, countryTestInterval: 120 });
+    const generated = result['proxy-groups'].at(-1);
+    assert.equal(generated.interval, countryGroupType === 'select' ? undefined : 120);
+    for (const group of original) assert.equal(result['proxy-groups'].find(row => row.name === group.name).interval, group.interval);
+  }
+  for (const countryTestInterval of [0, -1, 1.5, null, '120', 86401]) {
+    assert.throws(() => transformConfig(makeTemplate(), [[]], { countryTestInterval }), /间隔/);
+  }
+});
+
 test('rejects invalid country group types and test URLs', () => {
   for (const countryGroupType of ['bad', null, 1, '', 'relay']) assert.throws(() => transformConfig(makeTemplate(), [[]], { countryGroupType }), /国家分组/);
   for (const countryTestUrl of ['', null, 1, 'ftp://test.example', 'http://', 'https://test.example/\npath', 'https://test.example/a\tb', 'https://test.example/a\0b', 'https://test.example/a\x7fb']) assert.throws(() => transformConfig(makeTemplate(), [[]], { countryTestUrl }), /测试 URL/);
