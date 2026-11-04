@@ -548,6 +548,28 @@ td:last-child,th:last-child {
   overflow:hidden;
   text-overflow:ellipsis
 }
+.source-update-mode {
+  display:block;
+  width:fit-content;
+  margin-top:6px;
+  padding:3px 7px;
+  border:1px solid transparent;
+  border-radius:4px;
+  font-size:10px;
+  font-weight:500;
+  line-height:1.4;
+  white-space:nowrap
+}
+.source-update-mode.auto {
+  color:#236c4f;
+  background:#edf7f0;
+  border-color:#d6eadd
+}
+.source-update-mode.manual {
+  color:#526b8b;
+  background:#eef2f7;
+  border-color:#dce3ed
+}
 .tag {
   display:inline-block;
   border-radius:4px;

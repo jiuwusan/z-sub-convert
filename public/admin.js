@@ -228,7 +228,12 @@ function render() {
     const recordName = node('strong', 'record-name', record.name);
     recordName.title = record.name;
     title.append(recordName);
-    if (tab === 'sources') title.append(node('small', 'subline', record.updateMode === 'manual' ? '仅手动更新' : '自动更新'));
+    if (tab === 'sources') {
+      const manual = record.updateMode === 'manual';
+      const mode = node('small', `source-update-mode ${manual ? 'manual' : 'auto'}`, manual ? '手动更新' : '自动更新');
+      mode.title = manual ? '仅使用已有缓存，请手动更新来源' : '无缓存或缓存失效时，访问订阅按需更新';
+      title.append(mode);
+    }
     cell(row, title);
     if (tab === 'subscriptions') {
       const sources = node('div');
