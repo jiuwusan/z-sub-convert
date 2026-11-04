@@ -201,7 +201,7 @@ test('a source updated while another notification is in flight is checked before
   assert.equal(calls, 2);
 });
 
-test('successful sends crossing Beijing midnight are recorded on the actual success day', async t => {
+test('late sends crossing Beijing midnight do not consume the next morning expiry quota', async t => {
   const f = await fixture(t);
   await f.service.save(settings);
   f.tick(14 * 3600000 - 100);
@@ -214,22 +214,164 @@ test('successful sends crossing Beijing midnight are recorded on the actual succ
   assert.equal(f.sent.length, 2);
   await f.service.check();
   assert.equal(f.sent.length, 2);
+  f.tick(8 * 3600000 - 300);
+  await f.service.check();
+  assert.equal(f.sent.length, 4);
+  assert.equal(f.sent[2].body.markdown.title, 'Mihomo 套餐即将到期');
+  assert.equal(f.sent[3].body.card.header.title.content, '⚠️ Mihomo 套餐即将到期');
 });
 
-test('scheduler checks at startup and hourly and stops when closed', async t => {
+test('startup, hourly time passage and saving settings do not send cached alerts', async t => {
   const f = await fixture(t);
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
-  let calls = 0;
-  f.service.check = async () => { calls++; };
-  f.service.start();
+  await f.service.save(settings);
+  f.service.start?.();
   t.mock.timers.tick(0);
-  assert.equal(calls, 1);
-  t.mock.timers.tick(3600000);
-  assert.equal(calls, 2);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.sent.length, 0);
+  t.mock.timers.tick(24 * 3600000);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.sent.length, 0);
   await f.service.close();
-  t.mock.timers.tick(3600000);
-  assert.equal(calls, 2);
 });
+
+test('a successful source event only checks that source and retries its own failed sends', async t => {
+  const f = await fixture(t);
+  await f.service.save({ ...settings, feishu: { url: '', secret: '' } });
+  await f.store.update(state => { state.sources.push({ ...state.sources[0], id: 'two', name: '来源二' }); });
+  f.fail(true);
+  await f.service.check('one');
+  assert.equal(f.sent.length, 1);
+  assert.match(f.sent[0].body.markdown.text, /来源一/);
+  f.fail(false);
+  await f.service.check('two');
+  assert.equal(f.sent.length, 2);
+  assert.match(f.sent[1].body.markdown.text, /来源二/);
+  await f.service.check('one');
+  assert.equal(f.sent.length, 3);
+  assert.match(f.sent[2].body.markdown.text, /来源一/);
+  await f.service.check('missing');
+  assert.equal(f.sent.length, 3);
+});
+
+test('concurrent source events are retained without checking unrelated cached sources', async t => {
+  const f = await fixture(t);
+  await f.service.save({ ...settings, feishu: { url: '', secret: '' } });
+  await f.store.update(state => {
+    for (const id of ['two', 'three', 'unrelated']) state.sources.push({ ...state.sources[0], id, name: id });
+  });
+  let release, started;
+  const sending = new Promise(resolve => { started = resolve; });
+  const blocked = new Promise(resolve => { release = resolve; });
+  const fetchImpl = f.service.fetch;
+  f.service.fetch = async (...args) => {
+    if (!f.sent.length) { started(); await blocked; }
+    return fetchImpl(...args);
+  };
+  const first = f.service.check('one');
+  await sending;
+  const second = f.service.check('two');
+  const third = f.service.check('three');
+  release();
+  await Promise.all([first, second, third]);
+  assert.equal(f.sent.length, 3);
+  assert.match(f.sent[0].body.markdown.text, /来源一/);
+  assert.match(f.sent[1].body.markdown.text, /\*\*来源：\*\* two/);
+  assert.match(f.sent[2].body.markdown.text, /\*\*来源：\*\* three/);
+  assert.doesNotMatch(JSON.stringify(f.sent), /unrelated/);
+});
+
+test('source events arriving during drain cleanup are checked before callers and close complete', async () => {
+  const service = new Notifications({});
+  const checked = [];
+  let release, started;
+  const secondStarted = new Promise(resolve => { started = resolve; });
+  const blocked = new Promise(resolve => { release = resolve; });
+  service.performCheck = async ids => {
+    checked.push([...ids]);
+    if (checked.length === 1) {
+      queueMicrotask(() => queueMicrotask(() => service.check('two')));
+    } else {
+      started();
+      await blocked;
+    }
+  };
+  let completed = false, closed = false;
+  const first = service.check('one').then(() => { completed = true; });
+  const closing = service.close().then(() => { closed = true; });
+  // Flush the completion/cleanup handoff without blocking forever if it loses the event.
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(checked, [['one'], ['two']]);
+  await secondStarted;
+  assert.equal(completed, false);
+  assert.equal(closed, false);
+  release();
+  await Promise.all([first, closing]);
+  assert.equal(completed, true);
+  assert.equal(closed, true);
+  assert.equal(service.running, null);
+});
+
+for (const sameBatch of [false, true]) {
+  test(`a later source failure prevents stale alerts ${sameBatch ? 'within a shared snapshot' : 'from a queued success event'}`, async t => {
+    const f = await fixture(t);
+    await f.service.save({ ...settings, feishu: { url: '', secret: '' } });
+    await f.store.update(state => {
+      state.sources.push({ ...state.sources[0], id: 'two', name: '来源二', lastResult: { ok: true, at: NOW } });
+    });
+    let release, started;
+    const sending = new Promise(resolve => { started = resolve; });
+    const blocked = new Promise(resolve => { release = resolve; });
+    const fetchImpl = f.service.fetch;
+    f.service.fetch = async (...args) => {
+      if (!f.sent.length) { started(); await blocked; }
+      return fetchImpl(...args);
+    };
+    const first = f.service.check('one');
+    const second = sameBatch ? f.service.check('two') : null;
+    await sending;
+    const queued = sameBatch ? second : f.service.check('two');
+    await f.store.update(state => {
+      state.sources[1].lastResult = { ok: false, message: '更新失败', at: NOW + 1 };
+    });
+    release();
+    await Promise.all([first, queued]);
+    assert.equal(f.sent.length, 1);
+    assert.match(f.sent[0].body.markdown.text, /来源一/);
+    assert.equal(f.store.read().notifications.sent['dingtalk:two'], undefined);
+    await f.store.update(state => { state.sources[1].lastResult = { ok: true, at: NOW + 2 }; });
+    await f.service.check('two');
+    assert.equal(f.sent.length, 2, 'a later successful refresh can still alert');
+    assert.match(f.sent[1].body.markdown.text, /来源二/);
+  });
+}
+
+for (const change of ['failure', 'revision', 'cache']) {
+  test(`each channel revalidates the source after another channel waits: ${change}`, async t => {
+    const f = await fixture(t);
+    await f.service.save(settings);
+    let release, started;
+    const sending = new Promise(resolve => { started = resolve; });
+    const blocked = new Promise(resolve => { release = resolve; });
+    const fetchImpl = f.service.fetch;
+    f.service.fetch = async (...args) => {
+      if (!f.sent.length) { started(); await blocked; }
+      return fetchImpl(...args);
+    };
+    const checking = f.service.check('one');
+    await sending;
+    await f.store.update(state => {
+      const source = state.sources[0];
+      if (change === 'failure') source.lastResult = { ok: false, at: NOW + 1 };
+      if (change === 'revision') source.revision++;
+      if (change === 'cache') source.cache.file = 'newer-cache.yaml';
+    });
+    release();
+    await checking;
+    assert.equal(f.sent.length, 1, 'the second channel must not send the obsolete snapshot');
+    assert.equal(f.store.read().notifications.sent['feishu:one'], undefined);
+  });
+}
 
 test('low traffic alerts for every successful update, even with unchanged usage, without daily cache repeats', async t => {
   const f = await fixture(t);
@@ -271,4 +413,51 @@ test('expiry stays daily while subsequent updates still alert on low traffic', a
   await f.store.update(state => { state.sources[0].cache.file = 'cache-3.yaml'; state.sources[0].cache.userInfo.total = String(100n * GB); });
   await f.service.check();
   assert.equal(f.sent.length, 3);
+});
+
+test('expiry waits until Beijing 08:00 across restart without consuming its daily quota', async t => {
+  const f = await fixture(t);
+  await f.service.save(settings);
+  await f.store.update(state => { state.sources[0].cache.userInfo.total = String(100n * GB); });
+  let now = Date.parse('2026-11-04T00:00:00+08:00');
+  let service = new Notifications(f.store, { now: () => now, fetchImpl: f.fetchImpl });
+  await service.check();
+  now = Date.parse('2026-11-04T07:59:59.999+08:00');
+  await service.check();
+  assert.equal(f.sent.length, 0);
+  assert.deepEqual(f.store.read().notifications.sent, {});
+  service = new Notifications(await Store.open(f.options), { now: () => now, fetchImpl: f.fetchImpl });
+  now = Date.parse('2026-11-04T00:00:00Z'); // 08:00 Beijing, independent of server time zone.
+  await service.check();
+  await service.check();
+  assert.equal(f.sent.length, 2);
+  now = Date.parse('2026-11-05T00:00:00+08:00');
+  await service.check();
+  now = Date.parse('2026-11-05T07:59:59.999+08:00');
+  await service.check();
+  assert.equal(f.sent.length, 2);
+  now = Date.parse('2026-11-05T08:00:00+08:00');
+  await service.check();
+  await service.check();
+  assert.equal(f.sent.length, 4);
+});
+
+test('early traffic alerts do not consume the expiry reminder due after Beijing 08:00', async t => {
+  const f = await fixture(t);
+  await f.service.save(settings);
+  let now = Date.parse('2026-11-04T07:59:59+08:00');
+  let service = new Notifications(f.store, { now: () => now, fetchImpl: f.fetchImpl });
+  await service.check();
+  assert.equal(f.sent.length, 2);
+  assert.equal(f.sent[0].body.markdown.title, 'Mihomo 流量预警');
+  assert.equal(f.sent[1].body.card.header.title.content, '⚠️ Mihomo 流量预警');
+  for (const sent of Object.values(f.store.read().notifications.sent)) assert.equal(sent.day, undefined);
+  service = new Notifications(await Store.open(f.options), { now: () => now, fetchImpl: f.fetchImpl });
+  now += 1000;
+  await service.check();
+  assert.equal(f.sent.length, 4);
+  assert.equal(f.sent[2].body.markdown.title, 'Mihomo 套餐即将到期');
+  assert.equal(f.sent[3].body.card.header.title.content, '⚠️ Mihomo 套餐即将到期');
+  await service.check();
+  assert.equal(f.sent.length, 4);
 });

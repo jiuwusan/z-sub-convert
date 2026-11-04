@@ -7,6 +7,7 @@ const { tmpdir } = require('node:os');
 const YAML = require('yaml');
 const { Store } = require('../store');
 const { Managed, CACHE_MS } = require('../managed');
+const { Notifications } = require('../notifications');
 
 async function fixture(t, proxiesBySource) {
   const directory = await mkdtemp(join(tmpdir(), 'managed-cache-'));
@@ -31,6 +32,37 @@ async function fixture(t, proxiesBySource) {
   return { store, service, sub, one, two, options, calls, packages, sourceDns, selection, tick: v => { now += v; }, fail: () => { fail = true; }, generation: v => { generation = v; }, hold: v => { hold = v; } };
 }
 const sourceState = (f, id) => f.service.list().sources.find(row => row.id === id);
+
+test('only successful upstream refreshes trigger alerts for the corresponding source', async t => {
+  const f = await fixture(t);
+  f.packages.one = 'upload=0; download=0; total=100';
+  f.packages.two = 'upload=0; download=0; total=100';
+  await f.service.content(f.sub.key); // Existing caches must not be scanned when another source succeeds.
+  const sent = [];
+  const notifications = new Notifications(f.store, { now: () => Date.parse('2026-11-04T10:00:00+08:00'), logger: { error() {} }, fetchImpl: async (_url, init) => {
+    sent.push(JSON.parse(init.body));
+    return new Response('{"errcode":0}');
+  } });
+  await notifications.save({ dingtalk: { url: 'https://oapi.dingtalk.com/robot/send?access_token=test', secret: '' }, feishu: { url: '', secret: '' } });
+  f.service.options.notifications = notifications;
+  await f.service.refresh(f.one.id);
+  await notifications.close();
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].markdown.text, /来源一/);
+  await f.service.content(f.sub.key);
+  await notifications.close();
+  assert.equal(sent.length, 1, 'cache hits do not trigger alerts');
+  f.fail();
+  await assert.rejects(f.service.refresh(f.two.id));
+  await notifications.close();
+  assert.equal(sent.length, 1, 'failed refresh does not trigger an alert from old cache');
+  const metadataPath = f.store.path;
+  f.store.path = f.options.directory;
+  await assert.rejects(f.service.refresh(f.one.id));
+  f.store.path = metadataPath;
+  await notifications.close();
+  assert.equal(sent.length, 1, 'failed cache persistence does not trigger alerts');
+});
 
 test('shares raw source caches across subscriptions and restart, uses per-source UA and expires at 2 hours', async t => {
   assert.equal(CACHE_MS, 2 * 60 * 60 * 1000);

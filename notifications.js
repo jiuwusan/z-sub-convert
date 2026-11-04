@@ -78,6 +78,8 @@ class Notifications {
     this.fetch = fetchImpl;
     this.logger = logger;
     this.running = null;
+    this.pendingSources = new Set();
+    this.pendingAll = false;
   }
 
   settings() { return this.store.read().notifications?.settings ?? emptySettings(); }
@@ -127,24 +129,37 @@ class Notifications {
     return { ok: true };
   }
 
-  check() {
-    if (this.running) {
-      this.pending = true;
-      return this.running;
-    }
+  check(sourceId) {
+    // Unscoped checks remain available for explicit internal checks. Refresh events
+    // always carry a source ID so unrelated cached packages cannot send alerts.
+    if (sourceId === undefined) this.pendingAll = true;
+    else this.pendingSources.add(sourceId);
+    return this.drainPending();
+  }
+
+  drainPending() {
+    if (this.running) return this.running;
     this.running = Promise.resolve().then(async () => {
       do {
-        this.pending = false;
-        await this.performCheck();
-      } while (this.pending);
-    }).finally(() => { this.running = null; });
+        const sourceIds = this.pendingAll ? undefined : this.pendingSources;
+        this.pendingAll = false;
+        this.pendingSources = new Set();
+        await this.performCheck(sourceIds);
+      } while (this.pendingAll || this.pendingSources.size);
+    }).finally(() => {
+      this.running = null;
+      // Events can arrive after the loop exits but before this cleanup runs.
+      // Chain the next drain so current callers and close() await those events too.
+      if (this.pendingAll || this.pendingSources.size) return this.drainPending();
+    });
     return this.running;
   }
 
-  async performCheck() {
+  async performCheck(sourceIds) {
     const snapshot = this.store.read();
     const settings = snapshot.notifications?.settings ?? emptySettings();
     for (const source of snapshot.sources) {
+      if (sourceIds && !sourceIds.has(source.id)) continue;
       if (source.cache?.revision !== source.revision) continue;
       const causes = reasons(source.cache?.userInfo, this.now());
       if (!causes.length) continue;
@@ -154,18 +169,29 @@ class Notifications {
         const key = `${channel}:${source.id}`;
         const fingerprint = createHash('sha256').update(JSON.stringify(config.mention ? config : { url: config.url, secret: config.secret })).digest('hex');
         const sent = snapshot.notifications?.sent?.[key];
-        const day = Math.floor((this.now() + 8 * 3600000) / DAY);
+        const checkTime = this.now();
+        const day = Math.floor((checkTime + 8 * 3600000) / DAY);
+        const expiryAllowed = new Date(checkTime + 8 * 3600000).getUTCHours() >= 8;
         const previous = sent?.fingerprint === fingerprint ? sent : {};
         // Every successful source refresh writes a unique cache file, even if usage is unchanged.
         const trafficVersion = source.cache.file ?? String(source.lastSuccessAt);
         const pendingCauses = causes.filter(cause => cause === EXPIRY_REASON
-          ? previous.day !== day : previous.trafficVersion !== trafficVersion);
+          ? expiryAllowed && previous.day !== day : previous.trafficVersion !== trafficVersion);
         if (!pendingCauses.length) continue;
         try {
+          // A slow earlier webhook may outlive a failed refresh or cache/config
+          // replacement. Revalidate before each send, including within a batch.
+          const current = this.store.read().sources.find(row => row.id === source.id);
+          if (!current || current.lastResult?.ok === false || current.revision !== source.revision
+            || current.cache?.revision !== source.revision || current.cache?.file !== source.cache.file
+            || current.lastSuccessAt !== source.lastSuccessAt) continue;
           const title = [pendingCauses.includes(TRAFFIC_REASON) ? 'Mihomo 流量预警' : '',
             pendingCauses.includes(EXPIRY_REASON) ? 'Mihomo 套餐即将到期' : ''].filter(Boolean).join(' / ');
           await this.send(channel, config, message(source, pendingCauses, channel), title);
-          const successDay = Math.floor((this.now() + 8 * 3600000) / DAY);
+          const successTime = this.now();
+          // Late delivery after midnight does not consume the new morning reminder.
+          const successDay = new Date(successTime + 8 * 3600000).getUTCHours() >= 8
+            ? Math.floor((successTime + 8 * 3600000) / DAY) : day;
           await this.store.update(state => {
             state.notifications ??= { settings, sent: {} };
             state.notifications.sent ??= {};
@@ -180,17 +206,7 @@ class Notifications {
     }
   }
 
-  start() {
-    const run = () => { this.check().catch(() => this.logger.error('套餐提醒检查失败')); };
-    this.initial = setTimeout(run, 0);
-    this.initial.unref();
-    this.timer = setInterval(run, 3600000);
-    this.timer.unref();
-  }
-
   async close() {
-    clearTimeout(this.initial);
-    clearInterval(this.timer);
     await this.running;
   }
 }

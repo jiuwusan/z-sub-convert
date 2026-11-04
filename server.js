@@ -81,7 +81,6 @@ function createApp(options = {}) {
     sourceRecords.start();
     const notifications = new Notifications(store, { now, logger, fetchImpl: options.notificationFetchImpl });
     const managed = new Managed(store, { ...options, callRecords, sourceRecords, notifications, logger, now, timeoutMs, maxBytes });
-    notifications.start();
     return { store, auth, managed, callRecords, sourceRecords, notifications, admin: createAdminHandler({ store, auth, managed, callRecords, sourceRecords, notifications, now }) };
   }) : Promise.resolve(null);
   ready.catch(() => {}); // Request/startup paths report initialization failures.

@@ -55,8 +55,8 @@
       <div class="content">
         <div class="page-heading"><div><span class="eyebrow">SUBSCRIPTION WORKSPACE</span><h1 id="page-title">系统订阅</h1><p id="page-description" class="muted">将多个来源与模板组合，生成专属订阅链接。</p></div><div class="toolbar"><button id="reload" class="secondary" title="刷新当前列表">↻ 刷新</button><button id="refresh-all" class="secondary">全部更新</button><button id="add-record" class="primary">＋ 新增订阅</button></div></div>
         <form id="notification-form" class="notification-panel" hidden>
-          <p class="field-help">套餐在 3 天内到期或已到期时，每个来源、每个渠道按北京时间每天提醒一次。剩余流量小于 30 GB 时，每次来源更新成功即提醒，不受每日次数限制（1 GB = 1024³ 字节）。</p>
-          <p class="field-help">启动后、每小时及来源更新成功后检查已有套餐数据，不主动拉取订阅。通知包含套餐数据更新时间；无套餐信息、无限流量或长期有效时跳过对应条件。</p>
+          <p class="field-help">预警仅随对应来源成功更新触发。套餐在 3 天内到期或已到期时，每个来源、每个渠道按北京时间每天最多成功提醒一次，08:00 后仍须等待该来源下一次成功更新，不保证每日必达。剩余流量小于 30 GB 时，每次来源更新成功即提醒，不受每日次数和 08:00 时段限制（1 GB = 1024³ 字节）。</p>
+          <p class="field-help">启动、每小时、保存配置、命中缓存及更新失败均不触发预警；发送失败等待下一次该来源成功更新时重试。08:00 前只发送流量预警，不占当天到期提醒额度；08:00 后再次成功更新可补发到期提醒。手动测试通知可随时发送。通知包含套餐数据更新时间；无套餐信息、无限流量或长期有效时跳过对应条件。</p>
           <fieldset id="notification-fields" disabled>
             <section class="notification-channel">
               <h2>钉钉</h2>
