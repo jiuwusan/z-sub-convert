@@ -43,7 +43,12 @@ function escapeMarkdown(value) {
     .replace(/[\\`*_[\]{}()#!|]/g, '\\$&');
 }
 
-function message(source, causes) {
+function escapeFeishu(value) {
+  return String(value).replace(/[\r\n]+/g, ' ')
+    .replace(/[&<>\\`*_[\]{}()#!|~+\-\/$"':]/g, char => `&#${char.charCodeAt(0)};`);
+}
+
+function message(source, causes, channel) {
   const info = source.cache.userInfo;
   let remaining = '未提供';
   if (info.total === '0') remaining = '无限流量';
@@ -51,11 +56,12 @@ function message(source, causes) {
     const bytes = BigInt(info.total) - BigInt(info.upload) - BigInt(info.download);
     remaining = `${(Number(bytes > 0n ? bytes : 0n) / Number(GB)).toFixed(2)} GB`;
   }
-  const time = value => new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+  const time = value => new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
   const website = source.website ? new URL(source.website).href.replace(/[()<>\\]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`) : '';
-  return [`**来源：** ${escapeMarkdown(source.name)}`, '', '**预警原因**', ...causes.map(cause => `- ${cause}`), '',
+  const escape = channel === 'feishu' ? escapeFeishu : escapeMarkdown;
+  return [`**来源：** ${escape(source.name)}`, `**预警原因：** ${causes.join('；')}`,
     `**剩余流量：** ${remaining}`, `**到期时间：** ${info.expire === '0' ? '长期有效' : info.expire ? time(Number(info.expire) * 1000) : '未提供'}`,
-    ...(website ? ['', `[访问官网](${website})`] : []), '', `套餐数据更新时间：${time(source.lastSuccessAt)}（北京时间）`].join('\n');
+    ...(website ? [`**官网：** [访问官网](${website})`] : []), `**更新时间：** ${time(source.lastSuccessAt)}`].join('\n\n');
 }
 
 class Notifications {
@@ -82,9 +88,9 @@ class Notifications {
     const url = new URL(config.url);
     const body = channel === 'dingtalk'
       ? { msgtype: 'markdown', markdown: { title, text: `### ⚠️ ${title}\n\n${content}` } }
-      : { msg_type: 'interactive', card: { schema: '2.0',
-        header: { title: { tag: 'plain_text', content: `⚠️ ${title}` }, template: 'orange' },
-        body: { elements: [{ tag: 'markdown', content }] } } };
+      : { msg_type: 'interactive', card: { config: { wide_screen_mode: true },
+        header: { title: { tag: 'plain_text', content: `⚠️ ${title}` }, template: 'red' },
+        elements: [{ tag: 'div', text: { tag: 'lark_md', content } }] } };
     if (config.secret) {
       const timestamp = String(channel === 'dingtalk' ? this.now() : Math.floor(this.now() / 1000));
       if (channel === 'dingtalk') {
@@ -149,7 +155,7 @@ class Notifications {
         try {
           const title = [pendingCauses.includes(TRAFFIC_REASON) ? 'Mihomo 流量预警' : '',
             pendingCauses.includes(EXPIRY_REASON) ? 'Mihomo 套餐即将到期' : ''].filter(Boolean).join(' / ');
-          await this.send(channel, config, message(source, pendingCauses), title);
+          await this.send(channel, config, message(source, pendingCauses, channel), title);
           const successDay = Math.floor((this.now() + 8 * 3600000) / DAY);
           await this.store.update(state => {
             state.notifications ??= { settings, sent: {} };

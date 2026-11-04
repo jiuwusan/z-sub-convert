@@ -69,11 +69,18 @@ test('alerts use DingTalk Markdown and Feishu Markdown cards with escaped names 
   assert.ok(ding.markdown.text.includes('[访问官网](https://provider.example/plans%28annual%29?from=notice)'));
   const feishu = f.sent[1].body;
   assert.equal(feishu.msg_type, 'interactive');
-  assert.equal(feishu.card.schema, '2.0');
+  assert.equal(feishu.card.config.wide_screen_mode, true);
   assert.equal(feishu.card.header.title.tag, 'plain_text');
   assert.equal(feishu.card.header.title.content, '⚠️ Mihomo 流量预警 / Mihomo 套餐即将到期');
-  assert.equal(feishu.card.body.elements[0].tag, 'markdown');
-  assert.match(feishu.card.body.elements[0].content, /\*\*来源：\*\*/);
+  assert.equal(feishu.card.elements[0].text.tag, 'lark_md');
+  assert.match(feishu.card.elements[0].text.content, /\*\*来源：\*\*/);
+  assert.ok(feishu.card.elements[0].text.content.includes('机场&#42;&#91;测试&#93;&#60;at id=all&#62; 新行'));
+  for (const content of [ding.markdown.text, feishu.card.elements[0].text.content]) {
+    assert.match(content, /\*\*预警原因：\*\* [^\n]+\n\n\*\*剩余流量：\*\*/);
+    assert.match(content, /\*\*剩余流量：\*\* 29.00 GB\n\n\*\*到期时间：\*\*/);
+    assert.match(content, /\*\*官网：\*\* \[访问官网\]/);
+    assert.match(content, /\*\*更新时间：\*\* 2026\/11\/3 10:00:00$/);
+  }
   assert.doesNotMatch(JSON.stringify(feishu), /secret.example|<at id=all>/);
 });
 
@@ -89,7 +96,7 @@ test('Markdown notifications omit missing website links and keep unknown/unlimit
   assert.equal(f.sent[0].body.markdown.title, 'Mihomo 套餐即将到期');
   assert.equal(f.sent[1].body.card.header.title.content, '⚠️ Mihomo 套餐即将到期');
   assert.doesNotMatch(f.sent[0].body.markdown.text, /访问官网/);
-  assert.doesNotMatch(f.sent[1].body.card.body.elements[0].content, /访问官网/);
+  assert.doesNotMatch(f.sent[1].body.card.elements[0].text.content, /访问官网/);
 });
 
 test('checks combine reasons, persist daily deduplication, isolate failures and retry unsuccessful channels', async t => {
