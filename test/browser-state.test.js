@@ -35,6 +35,88 @@ async function copyHarness() {
   return { context, elements, denyClipboard: () => rejectClipboard(Error('denied')) };
 }
 
+class CountryElement {
+  constructor(tag) { this.tagName = tag; this.children = []; this.listeners = {}; this.checked = false; }
+  append(...items) { this.children.push(...items); }
+  replaceChildren(...items) { this.children = items; }
+  setAttribute(name, value) { this[name] = value; }
+  addEventListener(type, fn) { this.listeners[type] = fn; }
+  change() { return this.listeners.change?.(); }
+  all(name) { return this.children.flatMap(child => typeof child === 'object' ? [...(child.name === name ? [child] : []), ...child.all(name)] : []); }
+}
+
+async function countryHarness(record = {}) {
+  const harness = await copyHarness();
+  const {context, elements} = harness;
+  context.document.createElement = tag => new CountryElement(tag);
+  context.document.querySelector('#editor').open = true;
+  const sourceList = new CountryElement('div');
+  let sourceIds = ['one'];
+  sourceList.querySelectorAll = () => sourceIds.map(value => ({value}));
+  context.sourceList = sourceList;
+  context.record = record;
+  const form = vm.runInContext('createCountryFilter(sourceList, record)', context);
+  return {...harness, form, sources: sourceList, setSources(ids) {sourceIds = ids;} };
+}
+
+test('country filter defaults to all, shows selectable tags with counts and preserves selections when disabled or absent', async () => {
+  const h = await countryHarness();
+  let requests = 0;
+  h.context.api = async (_path, _method, body) => {
+    requests++;
+    assert.deepEqual(JSON.parse(JSON.stringify(body)), {sourceIds:['one']});
+    return {countries:[{code:'US',name:'美国',flag:'🇺🇸',count:2}], catalog:[{code:'US',name:'美国',flag:'🇺🇸'}],stale:false};
+  };
+  const toggle = h.form.all('customCountries')[0];
+  assert.equal(toggle.checked,false);
+  assert.equal(requests,0);
+  toggle.checked = true;
+  await toggle.change();
+  let us = h.form.all('countryCodes')[0];
+  assert.equal(us.value,'US');
+  assert.equal(us.checked,false);
+  us.checked = true; await us.change();
+  toggle.checked = false; await toggle.change();
+  assert.equal(h.form.all('countryCodes')[0].checked,true);
+  assert.equal(requests,1);
+  toggle.checked = true; await toggle.change();
+  h.context.api = async () => ({countries:[],catalog:[{code:'US',name:'美国',flag:'🇺🇸'}]});
+  h.setSources(['two']); await h.sources.change();
+  us = h.form.all('countryCodes')[0];
+  assert.equal(us.checked,true);
+  assert.equal(us.value,'US');
+  assert.match(JSON.stringify(h.form),/暂无节点/);
+});
+
+test('country filter ignores late choices after source changes, closing or changing the editor', async () => {
+  for (const change of ['source','close','editor']) {
+    const h = await countryHarness();
+    const waiting = [];
+    h.context.api = () => new Promise(resolve => waiting.push(resolve));
+    const toggle = h.form.all('customCountries')[0]; toggle.checked = true;
+    const first = toggle.change();
+    if (change === 'source') {
+      h.setSources(['two']);
+      const second = h.sources.change();
+      waiting[1]({countries:[{code:'JP',name:'日本',flag:'🇯🇵',count:1}],catalog:[]});
+      await second;
+    } else if (change === 'close') h.elements.get('#editor').open = false;
+    else vm.runInContext('state.editing = {resource:"subscriptions",id:"new"}',h.context);
+    waiting[0]({countries:[{code:'US',name:'美国',flag:'🇺🇸',count:1}],catalog:[]});
+    await first;
+    assert.ok(h.form.all('countryCodes').every(input => input.value !== 'US'));
+  }
+});
+
+test('editing country filter restores the whitelist and exposes retryable source errors', async () => {
+  const h = await countryHarness({customCountries:false,countryCodes:['OTHER']});
+  h.context.api = async () => {throw Error('请先手动更新');};
+  const toggle = h.form.all('customCountries')[0]; toggle.checked = true;
+  await toggle.change();
+  assert.match(JSON.stringify(h.form),/请先手动更新/);
+  assert.equal(h.form.all('countryCodes')[0].checked,true);
+});
+
 test('clipboard fallback respects navigation/logout and still opens on the originating authenticated page', async () => {
   for (const change of ['state.navigation += 1;', 'state.authenticated = false;', '']) {
     const { context, elements, denyClipboard } = await copyHarness();

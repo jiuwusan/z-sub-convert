@@ -115,8 +115,35 @@ function compareCountries(left, right) {
   return left.name.localeCompare(right.name, 'zh-CN');
 }
 
+function countryCatalog() {
+  return [...COUNTRIES, OTHER].sort(compareCountries).map(({code, flag, name}) => ({code, flag, name}));
+}
+
+function countryFilterOptions({ customCountries = false, countryCodes = [] } = {}) {
+  if (typeof customCountries !== 'boolean') throw new TypeError('自定义国家开关须为布尔值');
+  const valid = new Set([...COUNTRIES.map(country => country.code), OTHER.code]);
+  if (!Array.isArray(countryCodes) || countryCodes.length > 256 || countryCodes.some(code => !valid.has(code))) throw new TypeError('国家列表须为有效国家代码数组');
+  const codes = [...new Set(countryCodes)];
+  if (customCountries && !codes.length) throw new TypeError('自定义国家至少选择一项');
+  return {customCountries, countryCodes: codes};
+}
+
+function summarizeCountries(lists) {
+  const counts = new Map();
+  for (const list of lists) for (const proxy of list) {
+    const country = detectCountry(proxy.name);
+    const row = counts.get(country.code) ?? {...country, count: 0};
+    row.count++;
+    counts.set(country.code, row);
+  }
+  return [...counts.values()].sort(compareCountries).map(({code,flag,name,count}) => ({code,flag,name,count}));
+}
+
 module.exports = {
   COUNTRIES,
   detectCountry,
-  compareCountries
+  compareCountries,
+  countryCatalog,
+  countryFilterOptions,
+  summarizeCountries
 };

@@ -849,6 +849,12 @@ dialog form {
   gap:8px;
   flex-shrink:0
 }
+.country-options {
+  max-height:200px;
+  overflow-y:auto;
+  padding:3px;
+  margin:0 -3px
+}
 .nameserver-tag {
   position:relative;
   display:block;

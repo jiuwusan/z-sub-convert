@@ -33,6 +33,58 @@ async function fixture(t, proxiesBySource) {
 }
 const sourceState = (f, id) => f.service.list().sources.find(row => row.id === id);
 
+test('country filters persist per subscription, survive omitted edits and restart, and reuse complete source caches', async t => {
+  const f = await fixture(t);
+  assert.equal(f.service.get('subscriptions', f.sub.id).customCountries, false);
+  assert.deepEqual(f.service.list().subscriptions[0].countryCodes, []);
+  await f.service.save('subscriptions', {...f.sub, customCountries: true, countryCodes: ['US', 'US']}, f.sub.id);
+  assert.equal(YAML.parse((await f.service.content(f.sub.key)).body).proxies.length, 1);
+  assert.deepEqual(f.service.get('subscriptions', f.sub.id).countryCodes, ['US']);
+  const count = f.calls.length;
+  const {customCountries, countryCodes, ...omitted} = f.sub;
+  await f.service.save('subscriptions', {...omitted, name: '仅改名'}, f.sub.id);
+  assert.equal(f.service.get('subscriptions', f.sub.id).customCountries, true);
+  const restarted = new Managed(await Store.open(f.options), {now: () => 100000, fetchImpl() { throw Error('cached only'); }});
+  assert.equal(YAML.parse((await restarted.content(f.sub.key)).body).proxies.length, 1);
+  await f.service.save('subscriptions', {...omitted, customCountries: false}, f.sub.id);
+  assert.equal(YAML.parse((await f.service.content(f.sub.key)).body).proxies.length, 2);
+  assert.equal(f.calls.length, count);
+  for (const values of [{customCountries:true,countryCodes:[]}, {countryCodes:['ZZ']}, {customCountries:null}]) await assert.rejects(f.service.save('subscriptions', {...f.sub, ...values}, f.sub.id), /国家/);
+});
+
+test('country candidates aggregate selected sources, share cache and respect manual source update mode', async t => {
+  const f = await fixture(t, {one: [{name:'🇺🇸 one',type:'ss'}, {name:'unknown',type:'ss'}], two:[{name:'United States two',type:'trojan'}, {name:'日本',type:'ss'}]});
+  const result = await f.service.countries([f.one.id, f.two.id, f.one.id]);
+  assert.deepEqual(result.countries.map(({code,count}) => ({code,count})), [{code:'US',count:2}, {code:'JP',count:1}, {code:'OTHER',count:1}]);
+  assert.equal(result.stale, false);
+  assert.doesNotMatch(JSON.stringify(result), /secret|source\.test|server|password/);
+  await f.service.countries([f.one.id, f.two.id]);
+  assert.equal(f.calls.length, 2);
+  const source = await f.service.save('sources', {name:'manual',url:'https://source.test/manual',updateMode:'manual'});
+  await assert.rejects(f.service.countries([source.id, f.one.id]), /手动更新/);
+  assert.equal(f.calls.length, 2);
+  for (const ids of [[], null, ['missing'], [1], Array(51).fill(f.one.id)]) await assert.rejects(f.service.countries(ids));
+  f.tick(CACHE_MS);
+  f.fail();
+  const stale = await f.service.countries([f.one.id, f.two.id]);
+  assert.equal(stale.stale, true);
+  assert.equal(stale.countries.reduce((sum, row) => sum + row.count, 0), 4);
+});
+
+test('country selection changed during source reads takes effect before rendering without refetch', async t => {
+  const f = await fixture(t);
+  let release;
+  f.hold(new Promise(resolve => {release = resolve;}));
+  const pending = f.service.content(f.sub.key);
+  while (f.calls.length < 2) await new Promise(resolve => setImmediate(resolve));
+  await f.service.save('subscriptions', {...f.sub,customCountries:true,countryCodes:['JP']}, f.sub.id);
+  release();
+  const result = YAML.parse((await pending).body);
+  assert.equal(result.proxies.length, 1);
+  assert.match(result.proxies[0].name, /日本/);
+  assert.equal(f.calls.length, 2);
+});
+
 test('only successful upstream refreshes trigger alerts for the corresponding source', async t => {
   const f = await fixture(t);
   f.packages.one = 'upload=0; download=0; total=100';

@@ -8,6 +8,7 @@ const { AppError } = require('./auth');
 const { fetchSubscriptionDocument, parseSubscriptionDocument, SubscriptionError } = require('./fetch-subscriptions');
 const { transformConfig, countryGroupOptions, DEFAULT_COUNTRY_GROUP_TYPE, DEFAULT_COUNTRY_TEST_URL, DEFAULT_COUNTRY_TEST_INTERVAL } = require('./transform');
 const { aggregateUserinfo } = require('./userinfo');
+const { countryFilterOptions, summarizeCountries, countryCatalog } = require('./country');
 const { parseTemplate, validateRuleTemplate: validateTemplate, chooseNameservers, composeTemplate } = require('./template-parts');
 
 const CACHE_MS = 2 * 60 * 60 * 1000;
@@ -47,7 +48,7 @@ class Managed {
     const record = find(this.store.read(), resource, id);
     const { cache, ...safe } = record;
     if (resource === 'sources') return { ...safe, updateMode: safe.updateMode ?? 'auto' };
-    if (resource === 'subscriptions') return { ...safe, removeFailover: safe.removeFailover ?? false, evenNodesFirst: safe.evenNodesFirst ?? false, nameserverSourceIds: safe.nameserverSourceIds ?? [], countryGroupType: safe.countryGroupType ?? DEFAULT_COUNTRY_GROUP_TYPE, countryTestUrl: safe.countryTestUrl ?? DEFAULT_COUNTRY_TEST_URL, countryTestInterval: safe.countryTestInterval ?? DEFAULT_COUNTRY_TEST_INTERVAL };
+    if (resource === 'subscriptions') return { ...safe, customCountries: safe.customCountries ?? false, countryCodes: safe.countryCodes ?? [], removeFailover: safe.removeFailover ?? false, evenNodesFirst: safe.evenNodesFirst ?? false, nameserverSourceIds: safe.nameserverSourceIds ?? [], countryGroupType: safe.countryGroupType ?? DEFAULT_COUNTRY_GROUP_TYPE, countryTestUrl: safe.countryTestUrl ?? DEFAULT_COUNTRY_TEST_URL, countryTestInterval: safe.countryTestInterval ?? DEFAULT_COUNTRY_TEST_INTERVAL };
     return safe;
   }
 
@@ -69,6 +70,8 @@ class Managed {
       nameservers: state.nameservers,
       subscriptions: state.subscriptions.map(row => ({
         ...row,
+        customCountries: row.customCountries ?? false,
+        countryCodes: row.countryCodes ?? [],
         removeFailover: row.removeFailover ?? false,
         evenNodesFirst: row.evenNodesFirst ?? false,
         nameserverSourceIds: row.nameserverSourceIds ?? [],
@@ -157,6 +160,10 @@ class Managed {
       }
       if (resource === 'subscriptions') {
         try {
+          Object.assign(fields, countryFilterOptions({
+            customCountries: input.customCountries !== undefined ? input.customCountries : existing?.customCountries,
+            countryCodes: input.countryCodes !== undefined ? input.countryCodes : existing?.countryCodes
+          }));
           Object.assign(fields, countryGroupOptions({
             countryGroupType: input.countryGroupType !== undefined ? input.countryGroupType : existing?.countryGroupType,
             countryTestUrl: input.countryTestUrl !== undefined ? input.countryTestUrl : existing?.countryTestUrl,
@@ -320,11 +327,28 @@ class Managed {
     };
   }
 
+  async countries(sourceIds) {
+    if (!Array.isArray(sourceIds) || !sourceIds.length || sourceIds.length > 50 || sourceIds.some(id => typeof id !== 'string')) throw new AppError('请选择 1–50 个第三方订阅源');
+    const ids = [...new Set(sourceIds)];
+    for (const id of ids) find(this.store.read(), 'sources', id);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const results = await Promise.allSettled(ids.map(id => this.sourceContent(id)));
+      const failure = results.find(result => result.status === 'rejected');
+      if (failure) throw failure.reason;
+      const sources = results.map(result => result.value);
+      const current = this.store.read();
+      if (sources.some((source, index) => source.revision !== find(current, 'sources', ids[index]).revision)) continue;
+      return {countries: summarizeCountries(sources.map(source => source.proxies)), catalog: countryCatalog(), stale: sources.some(source => source.stale)};
+    }
+    throw new AppError('来源正在更新，请重试', 409);
+  }
+
   configuration(state, sub) {
     return JSON.stringify([sub.sourceIds, sub.templateId, find(state, 'templates', sub.templateId).content,
       sub.baseId, find(state, 'bases', sub.baseId).content, sub.useSourceNameservers, sub.nameserverIds, sub.nameserverSourceIds ?? [], sub.removeFailover ?? false, sub.evenNodesFirst ?? false,
       sub.countryGroupType ?? DEFAULT_COUNTRY_GROUP_TYPE, sub.countryTestUrl ?? DEFAULT_COUNTRY_TEST_URL,
       sub.countryTestInterval ?? DEFAULT_COUNTRY_TEST_INTERVAL,
+      sub.customCountries ?? false, sub.countryCodes ?? [],
       sub.nameserverIds.map(id => find(state, 'nameservers', id).address),
       sub.sourceIds.map(id => { const source = find(state, 'sources', id); return [source.revision, source.updateMode ?? 'auto', source.name]; })]);
   }
@@ -350,14 +374,21 @@ class Managed {
       const nameservers = chooseNameservers(current.useSourceNameservers, dnsSources.map(result => result.nameservers),
         current.nameserverIds.map(id => find(latest, 'nameservers', id).address));
       const template = composeTemplate(find(latest, 'bases', current.baseId).content, find(latest, 'templates', current.templateId).content, nameservers);
-      const body = YAML.stringify(transformConfig(template, sources.map(result => result.proxies), {
+      let output;
+      try { output = transformConfig(template, sources.map(result => result.proxies), {
         removeFailover: current.removeFailover ?? false,
         evenNodesFirst: current.evenNodesFirst ?? false,
         countryGroupType: current.countryGroupType ?? DEFAULT_COUNTRY_GROUP_TYPE,
         countryTestUrl: current.countryTestUrl ?? DEFAULT_COUNTRY_TEST_URL,
         countryTestInterval: current.countryTestInterval ?? DEFAULT_COUNTRY_TEST_INTERVAL,
+        customCountries: current.customCountries ?? false,
+        countryCodes: current.countryCodes ?? [],
         sourceNames: sourceIds.map(id => find(latest, 'sources', id).name)
-      }), { lineWidth: 0 });
+      }); } catch (error) {
+        if (error instanceof TypeError) throw new AppError(error.message);
+        throw error;
+      }
+      const body = YAML.stringify(output, { lineWidth: 0 });
       return { name: current.name, body, stale: sources.some(result => result.stale), ...this.packageInfo(sources.map(result => result.userInfo)) };
     }
     throw new AppError('配置已变更，请重试', 409);

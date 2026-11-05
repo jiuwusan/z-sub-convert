@@ -37,6 +37,34 @@ async function fixture(t, dataDir, upstreamHeaders = {}, upstreamOverride) {
   return { app, base, dataDir, request, login, upstreamBody, upstreamCalls: () => upstreamCalls };
 }
 
+test('country choices require login and CSRF and persist whitelist into public subscription output', async t => {
+  const f = await fixture(t, undefined, {}, YAML.stringify({proxies:[{name:'US',type:'ss',server:'us.example',port:443},{name:'日本',type:'ss',server:'jp.example',port:443},{name:'unknown',type:'ss',server:'other.example',port:443}]}));
+  assert.equal((await f.request('/api/subscriptions/countries', 'POST', {sourceIds:['missing']})).status, 401);
+  await f.request('/api/setup','POST',{username:'admin',password:'password123'});
+  const session = await f.login();
+  const source = await (await f.request('/api/sources','POST',{name:'source',url:'https://upstream.example/sub?token=secret'})).json();
+  const endpoint = '/api/subscriptions/countries';
+  assert.equal((await fetch(f.base+endpoint,{method:'POST',headers:{cookie:session.cookie,'content-type':'application/json'},body:JSON.stringify({sourceIds:[source.id]})})).status,403);
+  for (const sourceIds of [[], null, [1], ['missing']]) assert.ok((await f.request(endpoint,'POST',{sourceIds})).status >= 400);
+  const response = await f.request(endpoint,'POST',{sourceIds:[source.id]});
+  assert.equal(response.status,200);
+  const result = await response.json();
+  assert.deepEqual(result.countries.map(row => row.code),['US','JP','OTHER']);
+  assert.doesNotMatch(JSON.stringify(result), /secret|us\.example|jp\.example|upstream\.example/);
+  const state = await (await f.request('/api/state')).json();
+  const input = {name:'filtered',sourceIds:[source.id],baseId:state.bases[0].id,templateId:state.templates[0].id,nameserverIds:state.nameservers.map(row=>row.id),customCountries:true,countryCodes:['JP']};
+  assert.equal((await f.request('/api/subscriptions','POST',{...input,countryCodes:[]})).status,400);
+  const sub = await (await f.request('/api/subscriptions','POST',input)).json();
+  const output = YAML.parse(await (await fetch(f.base+'/sub?key='+sub.key)).text());
+  assert.equal(output.proxies.length,1);
+  assert.match(output.proxies[0].name,/日本/);
+  assert.equal(f.upstreamCalls(),1);
+  await f.request('/api/subscriptions/'+sub.id,'PATCH',{...input,countryCodes:['DE']});
+  const empty = await fetch(f.base+'/sub?key='+sub.key);
+  assert.equal(empty.status,400);
+  assert.match(await empty.text(),/没有符合所选国家/);
+});
+
 test('initializes without key, protects management with auth/CSRF and supports complete subscription CRUD', async t => {
   const f = await fixture(t);
   let response = await f.request('/api/status');

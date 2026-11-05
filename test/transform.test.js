@@ -5,6 +5,25 @@ const assert = require('node:assert/strict');
 
 const { transformConfig } = require('../transform');
 
+test('country whitelist filters nodes and references before grouping without changing shared inputs or template nodes', () => {
+  const template = makeTemplate();
+  template.proxies.push({ name: '自有节点', type: 'ss', server: 'own.example' });
+  const lists = [[{ name: 'US one', type: 'ss' }, { name: '日本', type: 'ss' }, { name: 'mystery', type: 'trojan' }], [{ name: '🇺🇸 two', type: 'ss' }]];
+  const original = structuredClone(lists);
+  const filtered = transformConfig(template, lists, { customCountries: true, countryCodes: ['US', 'OTHER'], sourceNames: ['A', 'B'] });
+  assert.equal(filtered.proxies.length, 4);
+  assert.ok(filtered.proxies.every(proxy => !proxy.name.includes('日本')));
+  const names = new Set([...filtered.proxies, ...filtered['proxy-groups']].map(row => row.name));
+  for (const group of filtered['proxy-groups']) for (const name of group.proxies) assert.ok(name === 'DIRECT' || names.has(name), name);
+  assert.deepEqual(lists, original);
+  assert.equal(transformConfig(template, lists, { customCountries: false, countryCodes: ['US'] }).proxies.length, 5);
+  assert.equal(transformConfig(template, lists).proxies.length, 5);
+  assert.throws(() => transformConfig(template, lists, { customCountries: true, countryCodes: ['DE'] }), /没有.*国家.*节点|无.*匹配/);
+  for (const options of [{customCountries:'true'}, {customCountries:null}, {countryCodes:null}, {countryCodes:'US'}, {countryCodes:['bad']}, {countryCodes:[1]}, {customCountries:true,countryCodes:[]}]) {
+    assert.throws(() => transformConfig(template, lists, options), /国家/);
+  }
+});
+
 function makeTemplate() {
   return {
     proxies: [],

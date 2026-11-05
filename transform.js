@@ -1,6 +1,6 @@
 'use strict';
 
-const { detectCountry, compareCountries } = require('./country');
+const { detectCountry, compareCountries, countryFilterOptions } = require('./country');
 
 const DEFAULT_COUNTRY_GROUP_TYPE = 'fallback';
 const DEFAULT_COUNTRY_TEST_URL = 'http://www.gstatic.com/generate_204';
@@ -130,8 +130,10 @@ function addProxyServerDirectRules(config) {
   return config;
 }
 
-function transformConfig(template, upstreamProxyLists, { removeFailover = false, evenNodesFirst = false, sourceNames, countryGroupType, countryTestUrl, countryTestInterval } = {}) {
+function transformConfig(template, upstreamProxyLists, { removeFailover = false, evenNodesFirst = false, sourceNames, countryGroupType, countryTestUrl, countryTestInterval, customCountries, countryCodes } = {}) {
   const groupOptions = countryGroupOptions({ countryGroupType, countryTestUrl, countryTestInterval });
+  const filter = countryFilterOptions({customCountries, countryCodes});
+  const selectedCountries = new Set(filter.countryCodes);
   if (!template || typeof template !== 'object' || Array.isArray(template)) {
     throw new TypeError('Template must be a YAML mapping');
   }
@@ -168,9 +170,11 @@ function transformConfig(template, upstreamProxyLists, { removeFailover = false,
       if (!proxy || typeof proxy !== 'object' || Array.isArray(proxy)) {
         throw new TypeError('Every proxy must be a YAML mapping');
       }
+      const country = detectCountry(proxy.name);
+      if (filter.customCountries && !selectedCountries.has(country.code)) continue;
       records.push({
         proxy,
-        country: detectCountry(proxy.name),
+        country,
         protocol: normalizeProtocol(proxy.type),
         sourceOrder: sourceLabels ? listIndex : 0,
         sourceName: sourceLabels?.[listIndex] ?? '',
@@ -180,6 +184,7 @@ function transformConfig(template, upstreamProxyLists, { removeFailover = false,
     }
   }
 
+  if (filter.customCountries && !records.length) throw new TypeError('没有符合所选国家的节点，请调整国家或更新来源');
   const groupsByKey = new Map();
   for (const record of records) {
     const key = JSON.stringify([record.sourceOrder, record.protocol, record.country.code]);

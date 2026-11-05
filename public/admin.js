@@ -327,6 +327,68 @@ function field(labelText, name, value = '', options = {}) {
   return { label, input };
 }
 
+function createCountryFilter(sourceList, record) {
+  const editing = state.editing;
+  const navigation = state.navigation;
+  const session = state.csrf;
+  const selected = new Set(record.countryCodes ?? []);
+  const catalog = new Map();
+  let available = [], sequence = 0;
+  const root = node('div', 'country-filter');
+  const option = node('label', 'source-option');
+  const toggle = node('input'); toggle.type = 'checkbox'; toggle.name = 'customCountries'; toggle.checked = record.customCountries ?? false;
+  option.append(toggle, node('span', '', '自定义国家'));
+  const section = node('div');
+  const title = node('span', 'field-title', '加入订阅的国家（可多选，至少一项）'); title.id = 'country-filter-label';
+  const choices = node('div', 'nameserver-options country-options');
+  choices.setAttribute('role', 'group'); choices.setAttribute('aria-labelledby', title.id);
+  const status = node('p', 'field-help'); status.setAttribute('aria-live', 'polite');
+  const retry = node('button', 'text-button', '重新解析'); retry.type = 'button'; retry.hidden = true;
+  section.append(title, choices, status, retry);
+  root.append(option, node('p', 'field-help', '默认加入全部国家；勾选后仅保留所选国家，后续订阅更新持续生效。“其他”包含未识别国家的节点。'), section);
+  const render = () => {
+    section.hidden = !toggle.checked;
+    choices.replaceChildren();
+    const rows = [...available];
+    for (const code of selected) if (!rows.some(row => row.code === code)) rows.push({...catalog.get(code), code, count: 0});
+    for (const row of rows) {
+      const label = node('label', 'nameserver-tag');
+      const input = node('input'); input.type = 'checkbox'; input.name = 'countryCodes'; input.value = row.code; input.checked = selected.has(row.code);
+      input.addEventListener('change', () => { if (input.checked) selected.add(row.code); else selected.delete(row.code); });
+      const caption = `${row.flag ? row.flag + ' ' : ''}${row.name || row.code} · ${row.count ? row.count + ' 个节点' : '暂无节点'}`;
+      label.append(input, node('span', '', caption)); choices.append(label);
+    }
+  };
+  const refresh = async () => {
+    const request = ++sequence;
+    render();
+    if (!toggle.checked) return;
+    const ids = [...sourceList.querySelectorAll('[name=sourceIds]:checked')].map(input => input.value);
+    available = []; render(); retry.hidden = true;
+    if (!ids.length) { status.textContent = '请先选择第三方订阅源。'; return; }
+    status.textContent = '正在解析国家…';
+    const current = () => request === sequence && state.navigation === navigation && state.editing === editing && state.csrf === session && state.authenticated && $('#editor').open && toggle.checked;
+    try {
+      const result = await api('/subscriptions/countries', 'POST', {sourceIds: ids});
+      if (!current()) return;
+      for (const row of result.catalog ?? []) catalog.set(row.code, row);
+      available = result.countries;
+      render();
+      status.textContent = (available.length ? '点击标签选择国家；暂无节点的已选国家会保留。' : '当前来源没有节点，可更新来源后重新解析。') + (result.stale ? ' 当前使用旧缓存，建议到来源列表更新。' : '');
+      retry.hidden = false;
+    } catch (error) {
+      if (!current()) return;
+      status.textContent = error.message; retry.hidden = false;
+    }
+  };
+  toggle.addEventListener('change', refresh);
+  sourceList.addEventListener('change', refresh);
+  retry.addEventListener('click', refresh);
+  render();
+  if (toggle.checked) refresh();
+  return root;
+}
+
 async function edit(resource, id) {
   const navigation = state.navigation;
   const record = id ? await api(`/${resource}/${id}`) : {};
@@ -424,6 +486,7 @@ async function edit(resource, id) {
     list.addEventListener('change', updateSourceOrder); updateSourceOrder();
     group.append(groupTitle, list, node('p', 'field-help', '已选来源可上移或下移，保存后按此顺序参与分组和 nameserver 聚合；新勾选的来源追加到末尾。'));
     fields.append(group);
+    fields.append(createCountryFilter(list, record));
     for (const [title, name, options] of [['基础模板', 'baseId', state.data.bases], ['规则模板', 'templateId', state.data.templates]]) {
       const label = node('label', '', title);
       const select = node('select'); select.name = name; select.required = true;
@@ -748,9 +811,12 @@ $('#editor-form').addEventListener('submit', async event => {
       body.nameserverSourceIds = form.getAll('nameserverSourceIds');
       body.removeFailover = form.has('removeFailover');
       body.evenNodesFirst = form.has('evenNodesFirst');
+      body.customCountries = form.has('customCountries');
+      body.countryCodes = form.getAll('countryCodes');
       body.countryGroupType = form.get('countryGroupType'); body.countryTestUrl = form.get('countryTestUrl');
       body.countryTestInterval = Number(form.get('countryTestInterval'));
       if (!body.sourceIds.length) throw Error('请至少选择一个第三方订阅源');
+      if (body.customCountries && !body.countryCodes.length) throw Error('自定义国家至少选择一项');
       if (!body.useSourceNameservers && !body.nameserverIds.length) throw Error('请至少选择一个 nameserver');
     }
     await api(`/${resource}${id ? `/${id}` : ''}`, id ? 'PATCH' : 'POST', body);

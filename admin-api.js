@@ -97,6 +97,13 @@ function createAdminHandler({ managed, auth, store, callRecords, sourceRecords, 
       return;
     }
     if (path === '/api/state' && method === 'GET') { json(200, managed.list()); return; }
+    if (path === '/api/subscriptions/countries') {
+      if (method !== 'POST') throw new AppError('请求方法不允许', 405);
+      const data = await readJson(request);
+      if (!data || typeof data !== 'object' || Array.isArray(data)) throw new AppError('请求内容无效');
+      json(200, await managed.countries(data.sourceIds));
+      return;
+    }
     if (path === '/api/notifications') {
       if (method === 'GET') json(200, notifications.settings());
       else if (method === 'PUT') json(200, await notifications.save(await readJson(request)));
