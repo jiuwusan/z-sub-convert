@@ -30,6 +30,19 @@ test('local proxy DNS endpoints are replaced with same-source nameservers and de
   }
 });
 
+test('missing or empty source proxy DNS falls back to same-source nameservers without changing template defaults', () => {
+  for (const value of [undefined, null, [], '']) {
+    const dns = { nameserver: ['127.0.0.1:5353', '8.8.8.8', '8.8.8.8'] };
+    if (value !== undefined) dns['proxy-server-nameserver'] = value;
+    const base = template({ 'proxy-server-nameserver': ['9.9.9.9'] });
+    const output = transformConfig(base, [[node('one.example')], [node('two.example')]], {
+      sourceDns: [dns, { nameserver: ['1.1.1.1'] }]
+    });
+    assert.deepEqual(output.dns['proxy-server-nameserver-policy'], { 'one.example': ['8.8.8.8'], 'two.example': ['1.1.1.1'] });
+    assert.deepEqual(output.dns['proxy-server-nameserver'], ['9.9.9.9']);
+  }
+});
+
 test('both source policies filter local values and retain external values and string shape', () => {
   const policies = {
     'local.example': '127.0.0.1:5353', 'all-local.example': ['tcp://127.0.0.1:53'],

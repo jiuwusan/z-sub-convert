@@ -28,7 +28,7 @@
 
 第三方订阅中的顶层 `hosts` 自动合并到生成的订阅，系统订阅及 `/sub?url=...` 转换入口均支持。按域名合并，冲突时模板已有值优先，其次取订阅关联来源顺序中的第一个值；保留字符串、地址数组、别名及通配域名。未提供或不是映射的来源 `hosts` 忽略，不额外生成空字段。系统订阅直接读取完整来源缓存，无需额外请求；旧版仅节点缓存需成功更新一次后才能补齐 `hosts`。
 
-来源配置了 `dns.proxy-server-nameserver` 时，为该来源保留节点的 `server` 域名自动生成 `dns.proxy-server-nameserver-policy`（IP 节点跳过），使不同来源节点使用各自 DNS。`hosts` 中节点域名关联的别名目标也会生成策略。来源 DNS 地址为 `127.0.0.1:端口`（包括 UDP/TCP/TLS/HTTPS URL）时，替换为同一来源的 `dns.nameserver`，备用中也排除本地地址，混合列表保留外部地址并去重；没有可用地址则跳过自动策略。来源已有 `proxy-server-nameserver-policy` 和 `nameserver-policy` 也会导入，仅删除其中指向 `127.0.0.1` 的地址，删空的条目不导入。模板同名策略优先，多个来源的同名策略按关联顺序取第一个；显式节点策略（含匹配的通配策略）优先于自动生成策略。模板的本地 DNS 配置保持原样。
+为来源保留节点的 `server` 域名自动生成 `dns.proxy-server-nameserver-policy`（IP 节点跳过），使不同来源节点使用各自 DNS：优先取来源的 `dns.proxy-server-nameserver`；未配置或为空时，改用同一来源的 `dns.nameserver`。`hosts` 中节点域名关联的别名目标也会生成策略。来源 DNS 地址为 `127.0.0.1:端口`（包括 UDP/TCP/TLS/HTTPS URL）时，替换为同一来源的 `dns.nameserver`，备用中也排除本地地址，混合列表保留外部地址并去重；没有可用地址则跳过自动策略。来源已有 `proxy-server-nameserver-policy` 和 `nameserver-policy` 也会导入，仅删除其中指向 `127.0.0.1` 的地址，删空的条目不导入。模板同名策略优先，多个来源的同名策略按关联顺序取第一个；显式节点策略（含匹配的通配策略）优先于自动生成策略。模板的本地 DNS 配置保持原样。
 
 两个转换入口均支持来源 DNS 策略，复用完整来源缓存，无额外请求，与 nameserver 来源选择开关独立。最终 `dns.proxy-server-nameserver` 完全保留模板配置：不追加来源地址，也不在缺失、为空数组或 null 时自动补齐；来源 DNS 仅参与对应 policy 的生成和合并。仅节点的旧版缓存缺少来源 DNS，需成功更新后补齐。
 

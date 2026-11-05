@@ -15,6 +15,7 @@
 - 当前分支开发，不创建分支/worktree，不自动提交或推送。
 - 模板同名策略优先，来源显式策略次之（来源先到先得），自动节点策略最后；通配显式策略覆盖到的域名不再新增更具体的自动策略。
 - 混合地址列表逐项替换本地 proxy-server-nameserver 地址为同源 nameserver，过滤备用中的本地地址并去重。来源 policy 仅删除本地项，全删空则跳过该键。
+- 来源 proxy-server-nameserver 缺失、null、空数组或空字符串时，自动节点策略使用同源 nameserver（仍过滤本地地址）；最终模板 proxy-server-nameserver 不变。
 - 原始来源缓存不变，不导入其他来源 DNS 设置；旧缓存缺少 DNS 时保持兼容。
 - 节点 IP 不生成域名策略；最终 proxy-server-nameserver 完全保留模板配置，缺失、空数组或 null 均不自动补齐，不追加来源地址。
 

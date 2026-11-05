@@ -34,11 +34,11 @@ async function makeTemplate(t, value = null) {
   return path;
 }
 
-test('url conversion merges source DNS policies and replaces local node resolvers', async t => {
+test('url conversion merges source DNS policies and falls back to source nameservers', async t => {
   const templatePath = await makeTemplate(t);
   const appUrl = await listen(t, createApp({ templatePath, fetchImpl: async url => new Response(YAML.stringify({
     proxies: [{ name: 'US', type: 'ss', server: String(url).includes('/one') ? 'one.example' : 'two.example' }],
-    dns: String(url).includes('/one') ? { nameserver: ['8.8.8.8'], 'proxy-server-nameserver': ['127.0.0.1:5353'] }
+    dns: String(url).includes('/one') ? { nameserver: ['8.8.8.8'] }
       : { 'proxy-server-nameserver-policy': { 'two.example': ['127.0.0.1:53', '1.1.1.1'] }, 'nameserver-policy': { 'app.example': '9.9.9.9', 'bad.example': '127.0.0.1:53' } }
   })), logger: { error() {} } }));
   const response = await fetch(`${appUrl}/sub?url=${encodeURIComponent('https://source.test/one|https://source.test/two')}`);

@@ -79,7 +79,10 @@ function mergeSourceDns(output, sources) {
   const explicitPatterns = [...proxyPolicy.keys()];
   for (const { dns, proxies, proxyNames } of sources) {
     const fallback = externalAddresses(dns?.nameserver).map(address => rewriteResolver(address, proxyNames));
-    const resolvers = [...new Set(addresses(dns?.['proxy-server-nameserver']).flatMap(address => localResolver(address) ? fallback : [rewriteResolver(address, proxyNames)]))];
+    const configured = addresses(dns?.['proxy-server-nameserver']);
+    const resolvers = configured.length
+      ? [...new Set(configured.flatMap(address => localResolver(address) ? fallback : [rewriteResolver(address, proxyNames)]))]
+      : fallback;
     if (!resolvers.length) continue;
     for (const domain of nodeDomains(proxies, output.hosts)) {
       if (proxyPolicy.has(domain) || explicitPatterns.some(pattern => matchesDomain(pattern, domain))) continue;

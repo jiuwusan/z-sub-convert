@@ -38,7 +38,7 @@ const sourceState = (f, id) => f.service.list().sources.find(row => row.id === i
 test('source DNS policies survive cache reuse, restart and failed refresh', async t => {
   const f = await fixture(t, { one: [{ name: 'US', type: 'ss', server: 'one.example' }], two: [{ name: 'JP', type: 'ss', server: 'two.example' }] });
   f.sourceDns.one = ['8.8.8.8'];
-  f.sourceDnsOptions.one = { 'proxy-server-nameserver': ['127.0.0.1:5353'], 'nameserver-policy': { 'custom.example': ['127.0.0.1:53', '1.1.1.1'] } };
+  f.sourceDnsOptions.one = { 'nameserver-policy': { 'custom.example': ['127.0.0.1:53', '1.1.1.1'] } };
   f.sourceDnsOptions.two = { 'proxy-server-nameserver-policy': { 'two.example': '9.9.9.9', 'bad.example': '127.0.0.1:5353' } };
   const verify = result => {
     const dns = YAML.parse(result.body).dns;
