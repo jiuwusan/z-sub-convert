@@ -101,7 +101,11 @@ function parseSubscriptionDocument(content) {
     || proxy.type.trim() === ''
   ));
   if (hasInvalidProxy) throw new SubscriptionError('Upstream subscription contains an invalid proxy', 502);
-  return { proxies: document.proxies, nameservers: uniqueAddresses(document.dns?.nameserver) };
+  return {
+    proxies: document.proxies,
+    nameservers: uniqueAddresses(document.dns?.nameserver),
+    hosts: document.hosts && typeof document.hosts === 'object' && !Array.isArray(document.hosts) ? document.hosts : {}
+  };
 }
 
 function parseSubscription(content) {

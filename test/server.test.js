@@ -34,6 +34,20 @@ async function makeTemplate(t, value = null) {
   return path;
 }
 
+test('url conversion includes hosts from all upstream documents', async t => {
+  const templatePath = await makeTemplate(t);
+  const appUrl = await listen(t, createApp({ templatePath, fetchImpl: async url => new Response(YAML.stringify({
+    proxies: [{ name: 'US', type: 'ss' }],
+    hosts: String(url).includes('/one') ? { 'one.test': '192.0.2.1', 'shared.test': '192.0.2.2' }
+      : { 'two.test': ['192.0.2.3'], 'shared.test': '192.0.2.4' }
+  })), logger: { error() {} } }));
+  const response = await fetch(`${appUrl}/sub?url=${encodeURIComponent('https://source.test/one|https://source.test/two')}`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(YAML.parse(await response.text()).hosts, {
+    'one.test': '192.0.2.1', 'shared.test': '192.0.2.2', 'two.test': ['192.0.2.3']
+  });
+});
+
 test('converts multiple subscriptions and ignores target and unknown parameters', async (t) => {
   const receivedAgents = [];
   const upstream = http.createServer((request, response) => {

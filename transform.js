@@ -130,7 +130,7 @@ function addProxyServerDirectRules(config) {
   return config;
 }
 
-function transformConfig(template, upstreamProxyLists, { removeFailover = false, evenNodesFirst = false, sourceNames, countryGroupType, countryTestUrl, countryTestInterval, customCountries, countryCodes } = {}) {
+function transformConfig(template, upstreamProxyLists, { removeFailover = false, evenNodesFirst = false, sourceNames, sourceHosts = [], countryGroupType, countryTestUrl, countryTestInterval, customCountries, countryCodes } = {}) {
   const groupOptions = countryGroupOptions({ countryGroupType, countryTestUrl, countryTestInterval });
   const filter = countryFilterOptions({customCountries, countryCodes});
   const selectedCountries = new Set(filter.countryCodes);
@@ -159,6 +159,15 @@ function transformConfig(template, upstreamProxyLists, { removeFailover = false,
   });
 
   const output = structuredClone(template);
+  const hosts = new Map();
+  // Keep local overrides first, then use the first source defining each domain.
+  for (const mapping of [output.hosts, ...sourceHosts]) {
+    if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) continue;
+    for (const [domain, value] of Object.entries(mapping)) {
+      if (!hosts.has(domain)) hosts.set(domain, value);
+    }
+  }
+  if (hosts.size) output.hosts = structuredClone(Object.fromEntries(hosts));
   const selector = findRequiredGroup(output['proxy-groups'], '🚀 节点选择');
   const failover = findRequiredGroup(output['proxy-groups'], '🔰 故障转移');
   const records = [];

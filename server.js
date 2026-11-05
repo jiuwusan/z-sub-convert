@@ -9,7 +9,8 @@ const {
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_BYTES,
   SubscriptionError,
-  fetchSubscriptions
+  splitSubscriptionUrls,
+  fetchSubscriptionDocument
 } = require('./fetch-subscriptions');
 const { transformConfig } = require('./transform');
 const { Store } = require('./store');
@@ -169,15 +170,16 @@ function createApp(options = {}) {
         sendDownload(response, { name: result.name, content: result.body, timestamp: now(), stale: result.stale, userInfo: result.userInfo });
         return;
       }
-      const proxyLists = await fetchSubscriptions(requestUrl.searchParams.get('url'), {
+      const urls = splitSubscriptionUrls(requestUrl.searchParams.get('url'));
+      const sources = await Promise.all(urls.map(url => fetchSubscriptionDocument(url, {
         fetchImpl: options.fetchImpl,
         timeoutMs,
         maxBytes
-      });
+      })));
       const template = await loadTemplate(templatePath);
       let output;
       try {
-        output = transformConfig(template, proxyLists);
+        output = transformConfig(template, sources.map(source => source.proxies), { sourceHosts: sources.map(source => source.hosts) });
       } catch (error) {
         throw new TemplateError('The configured template or upstream proxies have an invalid structure', { cause: error });
       }

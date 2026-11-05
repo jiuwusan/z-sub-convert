@@ -17,21 +17,39 @@ async function fixture(t, proxiesBySource) {
   let now = 100000, fail = false, hold = null, generation = 1;
   const packages = {};
   const sourceDns = {};
+  const sourceHosts = {};
   const calls = [];
   const service = new Managed(store, { now: () => now, fetchImpl: async (url, init) => {
     calls.push({ url: String(url), agent: init.headers['user-agent'] });
     if (hold) await hold;
     if (fail && String(url).includes('two')) return new Response('', { status: 503 });
     const packageHeader = packages[String(url).includes('two') ? 'two' : 'one'];
-    return new Response(YAML.stringify({ dns: { nameserver: sourceDns[String(url).includes('two') ? 'two' : 'one'] }, proxies: proxiesBySource?.[String(url).includes('two') ? 'two' : 'one'] ?? [{ name: String(url).includes('two') ? 'JP' : 'US', type: 'ss', server: `node-${generation}.example`, port: 443 }] }), { headers: packageHeader ? { 'subscription-userinfo': packageHeader } : {} });
+    return new Response(YAML.stringify({ hosts: sourceHosts[String(url).includes('two') ? 'two' : 'one'], dns: { nameserver: sourceDns[String(url).includes('two') ? 'two' : 'one'] }, proxies: proxiesBySource?.[String(url).includes('two') ? 'two' : 'one'] ?? [{ name: String(url).includes('two') ? 'JP' : 'US', type: 'ss', server: `node-${generation}.example`, port: 443 }] }), { headers: packageHeader ? { 'subscription-userinfo': packageHeader } : {} });
   } });
   const one = await service.save('sources', { name: '来源一', url: 'https://source.test/one?token=secret', userAgent: 'custom-agent' });
   const two = await service.save('sources', { name: '来源二', url: 'https://source.test/two' });
   const selection = { baseId: store.read().bases[0].id, nameserverIds: store.read().nameservers.map(row => row.id), useSourceNameservers: false };
   const sub = await service.save('subscriptions', { ...selection, name: '合并订阅', sourceIds: [one.id, two.id], templateId: store.read().templates[0].id });
-  return { store, service, sub, one, two, options, calls, packages, sourceDns, selection, tick: v => { now += v; }, fail: () => { fail = true; }, generation: v => { generation = v; }, hold: v => { hold = v; } };
+  return { store, service, sub, one, two, options, calls, packages, sourceDns, sourceHosts, selection, tick: v => { now += v; }, fail: () => { fail = true; }, generation: v => { generation = v; }, hold: v => { hold = v; } };
 }
 const sourceState = (f, id) => f.service.list().sources.find(row => row.id === id);
+
+test('subscription hosts survive cache reuse and restart and follow source order', async t => {
+  const f = await fixture(t);
+  f.sourceHosts.one = { 'shared.test': '192.0.2.1', 'one.test': ['192.0.2.2', '2001:db8::2'] };
+  f.sourceHosts.two = { 'shared.test': '192.0.2.3', 'two.test': 'alias.test' };
+  const expected = { 'shared.test': '192.0.2.1', 'one.test': ['192.0.2.2', '2001:db8::2'], 'two.test': 'alias.test' };
+  assert.deepEqual(YAML.parse((await f.service.content(f.sub.key)).body).hosts, expected);
+  assert.deepEqual(YAML.parse((await f.service.content(f.sub.key)).body).hosts, expected);
+  assert.equal(f.calls.length, 2);
+  const restarted = new Managed(await Store.open(f.options), { now: () => 100000, fetchImpl() { throw Error('cached only'); } });
+  assert.deepEqual(YAML.parse((await restarted.content(f.sub.key)).body).hosts, expected);
+  await f.service.save('subscriptions', { ...f.sub, sourceIds: [f.two.id, f.one.id] }, f.sub.id);
+  assert.equal(YAML.parse((await f.service.content(f.sub.key)).body).hosts['shared.test'], '192.0.2.3');
+  f.fail();
+  f.tick(CACHE_MS);
+  assert.equal(YAML.parse((await f.service.content(f.sub.key)).body).hosts['two.test'], 'alias.test');
+});
 
 test('country filters persist per subscription, survive omitted edits and restart, and reuse complete source caches', async t => {
   const f = await fixture(t);

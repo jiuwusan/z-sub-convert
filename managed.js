@@ -296,21 +296,21 @@ class Managed {
       const cached = await this.cached(source);
       const current = find(this.store.read(), 'sources', id);
       if (current.revision !== source.revision || current.cache?.file !== source.cache?.file || (current.updateMode ?? 'auto') !== (source.updateMode ?? 'auto')) continue;
-      return { source, proxies: cached?.proxies ?? null, content: cached?.content ?? null, nameservers: cached?.nameservers ?? [] };
+      return { source, proxies: cached?.proxies ?? null, content: cached?.content ?? null, nameservers: cached?.nameservers ?? [], hosts: cached?.hosts ?? {} };
     }
     throw new AppError('来源正在更新，请重试', 409);
   }
 
   async sourceContent(id) {
-    let { source, proxies, nameservers } = await this.currentSource(id);
+    let { source, proxies, nameservers, hosts } = await this.currentSource(id);
     if (proxies !== null && (source.updateMode === 'manual' || this.status(source) === 'valid' || this.inflight.get(id)?.revision === source.revision)) {
-      return { proxies, nameservers, userInfo: source.cache?.userInfo ?? null, revision: source.revision, stale: this.status(source) !== 'valid' };
+      return { proxies, nameservers, hosts, userInfo: source.cache?.userInfo ?? null, revision: source.revision, stale: this.status(source) !== 'valid' };
     }
     if (source.updateMode === 'manual') throw new AppError(`来源“${source.name}”为仅手动更新，暂无可用缓存，请先手动更新`, 409);
     let failure;
     try { await this.refresh(id, 'on-demand'); } catch (error) { failure = error; }
-    ({ source, proxies, nameservers } = await this.currentSource(id));
-    if (proxies !== null) return { proxies, nameservers, userInfo: source.cache?.userInfo ?? null, revision: source.revision, stale: Boolean(failure) || this.status(source) !== 'valid' };
+    ({ source, proxies, nameservers, hosts } = await this.currentSource(id));
+    if (proxies !== null) return { proxies, nameservers, hosts, userInfo: source.cache?.userInfo ?? null, revision: source.revision, stale: Boolean(failure) || this.status(source) !== 'valid' };
     throw failure || new AppError('来源缓存不可用，请重试更新', 502);
   }
 
@@ -376,6 +376,7 @@ class Managed {
       const template = composeTemplate(find(latest, 'bases', current.baseId).content, find(latest, 'templates', current.templateId).content, nameservers);
       let output;
       try { output = transformConfig(template, sources.map(result => result.proxies), {
+        sourceHosts: sources.map(result => result.hosts),
         removeFailover: current.removeFailover ?? false,
         evenNodesFirst: current.evenNodesFirst ?? false,
         countryGroupType: current.countryGroupType ?? DEFAULT_COUNTRY_GROUP_TYPE,

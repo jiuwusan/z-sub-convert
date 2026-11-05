@@ -5,6 +5,30 @@ const assert = require('node:assert/strict');
 
 const { transformConfig } = require('../transform');
 
+test('merges source hosts with template priority and preserves input mappings', () => {
+  const template = makeTemplate();
+  template.hosts = { 'template.test': '192.0.2.10', 'shared.test': '192.0.2.11' };
+  const sourceHosts = [
+    { 'shared.test': '192.0.2.12', 'source.test': ['192.0.2.13', '2001:db8::13'], 'duplicate.test': '192.0.2.14' },
+    { 'duplicate.test': '192.0.2.15', '*.example.test': 'alias.test' }
+  ];
+  const before = structuredClone({ template, sourceHosts });
+  const output = transformConfig(template, [[{ name: 'US', type: 'ss' }]], { sourceHosts });
+  assert.deepEqual(output.hosts, {
+    'template.test': '192.0.2.10', 'shared.test': '192.0.2.11',
+    'source.test': ['192.0.2.13', '2001:db8::13'], 'duplicate.test': '192.0.2.14', '*.example.test': 'alias.test'
+  });
+  output.hosts['source.test'].push('192.0.2.99');
+  assert.deepEqual({ template, sourceHosts }, before);
+});
+
+test('omits hosts when sources have no mapping and supports special domain keys', () => {
+  const lists = [[{ name: 'US', type: 'ss' }]];
+  assert.equal(Object.hasOwn(transformConfig(makeTemplate(), lists, { sourceHosts: [undefined, null, [], 'invalid'] }), 'hosts'), false);
+  const hosts = JSON.parse('{"__proto__":"192.0.2.1","constructor":"192.0.2.2"}');
+  assert.deepEqual(transformConfig(makeTemplate(), lists, { sourceHosts: [hosts] }).hosts, hosts);
+});
+
 test('country whitelist filters nodes and references before grouping without changing shared inputs or template nodes', () => {
   const template = makeTemplate();
   template.proxies.push({ name: '自有节点', type: 'ss', server: 'own.example' });
