@@ -171,12 +171,12 @@ class Notifications {
         const sent = snapshot.notifications?.sent?.[key];
         const checkTime = this.now();
         const day = Math.floor((checkTime + 8 * 3600000) / DAY);
-        const expiryAllowed = new Date(checkTime + 8 * 3600000).getUTCHours() >= 8;
+        const alertsAllowed = new Date(checkTime + 8 * 3600000).getUTCHours() >= 8;
         const previous = sent?.fingerprint === fingerprint ? sent : {};
         // Every successful source refresh writes a unique cache file, even if usage is unchanged.
         const trafficVersion = source.cache.file ?? String(source.lastSuccessAt);
-        const pendingCauses = causes.filter(cause => cause === EXPIRY_REASON
-          ? expiryAllowed && previous.day !== day : previous.trafficVersion !== trafficVersion);
+        const pendingCauses = causes.filter(cause => alertsAllowed && (cause === EXPIRY_REASON
+          ? previous.day !== day : previous.trafficVersion !== trafficVersion));
         if (!pendingCauses.length) continue;
         try {
           // A slow earlier webhook may outlive a failed refresh or cache/config

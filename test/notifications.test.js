@@ -211,14 +211,14 @@ test('late sends crossing Beijing midnight do not consume the next morning expir
     return original(...args);
   };
   await f.service.check();
-  assert.equal(f.sent.length, 2);
+  assert.equal(f.sent.length, 1);
   await f.service.check();
-  assert.equal(f.sent.length, 2);
-  f.tick(8 * 3600000 - 300);
+  assert.equal(f.sent.length, 1);
+  f.tick(8 * 3600000);
   await f.service.check();
-  assert.equal(f.sent.length, 4);
-  assert.equal(f.sent[2].body.markdown.title, 'Mihomo 套餐即将到期');
-  assert.equal(f.sent[3].body.card.header.title.content, '⚠️ Mihomo 套餐即将到期');
+  assert.equal(f.sent.length, 3);
+  assert.equal(f.sent[1].body.markdown.title, 'Mihomo 套餐即将到期');
+  assert.equal(f.sent[2].body.card.header.title.content, '⚠️ Mihomo 流量预警 / Mihomo 套餐即将到期');
 });
 
 test('startup, hourly time passage and saving settings do not send cached alerts', async t => {
@@ -442,22 +442,45 @@ test('expiry waits until Beijing 08:00 across restart without consuming its dail
   assert.equal(f.sent.length, 4);
 });
 
-test('early traffic alerts do not consume the expiry reminder due after Beijing 08:00', async t => {
+test('traffic and expiry both wait until Beijing 08:00 without consuming send quotas', async t => {
   const f = await fixture(t);
   await f.service.save(settings);
   let now = Date.parse('2026-11-04T07:59:59+08:00');
   let service = new Notifications(f.store, { now: () => now, fetchImpl: f.fetchImpl });
   await service.check();
-  assert.equal(f.sent.length, 2);
-  assert.equal(f.sent[0].body.markdown.title, 'Mihomo 流量预警');
-  assert.equal(f.sent[1].body.card.header.title.content, '⚠️ Mihomo 流量预警');
-  for (const sent of Object.values(f.store.read().notifications.sent)) assert.equal(sent.day, undefined);
+  assert.equal(f.sent.length, 0);
+  assert.deepEqual(f.store.read().notifications.sent, {});
   service = new Notifications(await Store.open(f.options), { now: () => now, fetchImpl: f.fetchImpl });
   now += 1000;
   await service.check();
-  assert.equal(f.sent.length, 4);
-  assert.equal(f.sent[2].body.markdown.title, 'Mihomo 套餐即将到期');
-  assert.equal(f.sent[3].body.card.header.title.content, '⚠️ Mihomo 套餐即将到期');
+  assert.equal(f.sent.length, 2);
+  assert.equal(f.sent[0].body.markdown.title, 'Mihomo 流量预警 / Mihomo 套餐即将到期');
+  assert.equal(f.sent[1].body.card.header.title.content, '⚠️ Mihomo 流量预警 / Mihomo 套餐即将到期');
   await service.check();
+  assert.equal(f.sent.length, 2);
+});
+
+test('traffic-only alerts wait until Beijing 08:00 across restart and still send on subsequent updates', async t => {
+  const f = await fixture(t);
+  await f.service.save(settings);
+  await f.store.update(state => { state.sources[0].cache.userInfo.expire = '0'; });
+  let now = Date.parse('2026-11-06T00:00:00+08:00');
+  let service = new Notifications(f.store, { now: () => now, fetchImpl: f.fetchImpl });
+  await service.check('one');
+  now = Date.parse('2026-11-06T07:59:59.999+08:00');
+  await service.check('one');
+  assert.equal(f.sent.length, 0);
+  assert.deepEqual(f.store.read().notifications.sent, {});
+  const store = await Store.open(f.options);
+  service = new Notifications(store, { now: () => now, fetchImpl: f.fetchImpl });
+  now = Date.parse('2026-11-06T00:00:00Z');
+  await service.check('one');
+  assert.equal(f.sent.length, 2);
+  assert.equal(f.sent[0].body.markdown.title, 'Mihomo 流量预警');
+  assert.equal(f.sent[1].body.card.header.title.content, '⚠️ Mihomo 流量预警');
+  await service.check('one');
+  assert.equal(f.sent.length, 2);
+  await store.update(state => { state.sources[0].cache.file = 'new-cache.yaml'; });
+  await service.check('one');
   assert.equal(f.sent.length, 4);
 });
