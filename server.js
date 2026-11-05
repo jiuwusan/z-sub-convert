@@ -179,7 +179,9 @@ function createApp(options = {}) {
       const template = await loadTemplate(templatePath);
       let output;
       try {
-        output = transformConfig(template, sources.map(source => source.proxies), { sourceHosts: sources.map(source => source.hosts) });
+        output = transformConfig(template, sources.map(source => source.proxies), {
+          sourceHosts: sources.map(source => source.hosts), sourceDns: sources.map(source => source.dns)
+        });
       } catch (error) {
         throw new TemplateError('The configured template or upstream proxies have an invalid structure', { cause: error });
       }

@@ -1,6 +1,7 @@
 'use strict';
 
 const { detectCountry, compareCountries, countryFilterOptions } = require('./country');
+const { mergeSourceDns } = require('./source-dns');
 
 const DEFAULT_COUNTRY_GROUP_TYPE = 'fallback';
 const DEFAULT_COUNTRY_TEST_URL = 'http://www.gstatic.com/generate_204';
@@ -130,7 +131,7 @@ function addProxyServerDirectRules(config) {
   return config;
 }
 
-function transformConfig(template, upstreamProxyLists, { removeFailover = false, evenNodesFirst = false, sourceNames, sourceHosts = [], countryGroupType, countryTestUrl, countryTestInterval, customCountries, countryCodes } = {}) {
+function transformConfig(template, upstreamProxyLists, { removeFailover = false, evenNodesFirst = false, sourceNames, sourceHosts = [], sourceDns = [], countryGroupType, countryTestUrl, countryTestInterval, customCountries, countryCodes } = {}) {
   const groupOptions = countryGroupOptions({ countryGroupType, countryTestUrl, countryTestInterval });
   const filter = countryFilterOptions({customCountries, countryCodes});
   const selectedCountries = new Set(filter.countryCodes);
@@ -183,6 +184,7 @@ function transformConfig(template, upstreamProxyLists, { removeFailover = false,
       if (filter.customCountries && !selectedCountries.has(country.code)) continue;
       records.push({
         proxy,
+        sourceListIndex: listIndex,
         country,
         protocol: normalizeProtocol(proxy.type),
         sourceOrder: sourceLabels ? listIndex : 0,
@@ -254,6 +256,11 @@ function transformConfig(template, upstreamProxyLists, { removeFailover = false,
   selector.proxies.push(...generatedNames);
   failover.proxies.push(...generatedNames);
   output['proxy-groups'].push(...generatedGroups);
+  mergeSourceDns(output, sourceDns.map((dns, index) => {
+    const sourceRecords = records.filter(record => record.sourceListIndex === index);
+    return { dns, proxies: sourceRecords.map(record => record.proxy),
+      proxyNames: new Map(sourceRecords.map(record => [record.proxy.name, record.assignedName])) };
+  }));
   if (removeFailover) removeFailoverGroup(output, failover);
 
   addProxyServerDirectRules(output);

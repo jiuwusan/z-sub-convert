@@ -103,6 +103,8 @@ function parseSubscriptionDocument(content) {
   if (hasInvalidProxy) throw new SubscriptionError('Upstream subscription contains an invalid proxy', 502);
   return {
     proxies: document.proxies,
+    dns: Object.fromEntries(['nameserver', 'proxy-server-nameserver', 'proxy-server-nameserver-policy', 'nameserver-policy']
+      .filter(key => Object.hasOwn(document.dns || {}, key)).map(key => [key, document.dns[key]])),
     nameservers: uniqueAddresses(document.dns?.nameserver),
     hosts: document.hosts && typeof document.hosts === 'object' && !Array.isArray(document.hosts) ? document.hosts : {}
   };

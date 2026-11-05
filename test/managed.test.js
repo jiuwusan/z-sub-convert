@@ -17,6 +17,7 @@ async function fixture(t, proxiesBySource) {
   let now = 100000, fail = false, hold = null, generation = 1;
   const packages = {};
   const sourceDns = {};
+  const sourceDnsOptions = {};
   const sourceHosts = {};
   const calls = [];
   const service = new Managed(store, { now: () => now, fetchImpl: async (url, init) => {
@@ -24,15 +25,39 @@ async function fixture(t, proxiesBySource) {
     if (hold) await hold;
     if (fail && String(url).includes('two')) return new Response('', { status: 503 });
     const packageHeader = packages[String(url).includes('two') ? 'two' : 'one'];
-    return new Response(YAML.stringify({ hosts: sourceHosts[String(url).includes('two') ? 'two' : 'one'], dns: { nameserver: sourceDns[String(url).includes('two') ? 'two' : 'one'] }, proxies: proxiesBySource?.[String(url).includes('two') ? 'two' : 'one'] ?? [{ name: String(url).includes('two') ? 'JP' : 'US', type: 'ss', server: `node-${generation}.example`, port: 443 }] }), { headers: packageHeader ? { 'subscription-userinfo': packageHeader } : {} });
+    return new Response(YAML.stringify({ hosts: sourceHosts[String(url).includes('two') ? 'two' : 'one'], dns: { ...sourceDnsOptions[String(url).includes('two') ? 'two' : 'one'], nameserver: sourceDns[String(url).includes('two') ? 'two' : 'one'] }, proxies: proxiesBySource?.[String(url).includes('two') ? 'two' : 'one'] ?? [{ name: String(url).includes('two') ? 'JP' : 'US', type: 'ss', server: `node-${generation}.example`, port: 443 }] }), { headers: packageHeader ? { 'subscription-userinfo': packageHeader } : {} });
   } });
   const one = await service.save('sources', { name: '来源一', url: 'https://source.test/one?token=secret', userAgent: 'custom-agent' });
   const two = await service.save('sources', { name: '来源二', url: 'https://source.test/two' });
   const selection = { baseId: store.read().bases[0].id, nameserverIds: store.read().nameservers.map(row => row.id), useSourceNameservers: false };
   const sub = await service.save('subscriptions', { ...selection, name: '合并订阅', sourceIds: [one.id, two.id], templateId: store.read().templates[0].id });
-  return { store, service, sub, one, two, options, calls, packages, sourceDns, sourceHosts, selection, tick: v => { now += v; }, fail: () => { fail = true; }, generation: v => { generation = v; }, hold: v => { hold = v; } };
+  return { store, service, sub, one, two, options, calls, packages, sourceDns, sourceDnsOptions, sourceHosts, selection, tick: v => { now += v; }, fail: () => { fail = true; }, generation: v => { generation = v; }, hold: v => { hold = v; } };
 }
 const sourceState = (f, id) => f.service.list().sources.find(row => row.id === id);
+
+test('source DNS policies survive cache reuse, restart and failed refresh', async t => {
+  const f = await fixture(t, { one: [{ name: 'US', type: 'ss', server: 'one.example' }], two: [{ name: 'JP', type: 'ss', server: 'two.example' }] });
+  f.sourceDns.one = ['8.8.8.8'];
+  f.sourceDnsOptions.one = { 'proxy-server-nameserver': ['127.0.0.1:5353'], 'nameserver-policy': { 'custom.example': ['127.0.0.1:53', '1.1.1.1'] } };
+  f.sourceDnsOptions.two = { 'proxy-server-nameserver-policy': { 'two.example': '9.9.9.9', 'bad.example': '127.0.0.1:5353' } };
+  const verify = result => {
+    const dns = YAML.parse(result.body).dns;
+    assert.equal(dns['proxy-server-nameserver-policy']['two.example'], '9.9.9.9');
+    assert.deepEqual(dns['proxy-server-nameserver-policy']['one.example'], ['8.8.8.8']);
+    assert.equal(Object.hasOwn(dns['proxy-server-nameserver-policy'], 'bad.example'), false);
+    assert.deepEqual(dns['nameserver-policy']['custom.example'], ['1.1.1.1']);
+  };
+  verify(await f.service.content(f.sub.key));
+  verify(await f.service.content(f.sub.key));
+  assert.equal(f.calls.length, 2);
+  const restarted = new Managed(await Store.open(f.options), { now: () => 100000, fetchImpl() { throw Error('cached only'); } });
+  verify(await restarted.content(f.sub.key));
+  f.tick(CACHE_MS);
+  f.fail();
+  const stale = await f.service.content(f.sub.key);
+  assert.equal(stale.stale, true);
+  verify(stale);
+});
 
 test('subscription hosts survive cache reuse and restart and follow source order', async t => {
   const f = await fixture(t);
