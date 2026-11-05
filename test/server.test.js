@@ -46,7 +46,7 @@ test('url conversion merges source DNS policies and replaces local node resolver
   const output = YAML.parse(await response.text());
   assert.deepEqual(output.dns['proxy-server-nameserver-policy'], { 'two.example': ['1.1.1.1'], 'one.example': ['8.8.8.8'] });
   assert.deepEqual(output.dns['nameserver-policy'], { 'app.example': '9.9.9.9' });
-  assert.ok(output.dns['proxy-server-nameserver'].length);
+  assert.equal(Object.hasOwn(output.dns, 'proxy-server-nameserver'), false);
 });
 
 test('url conversion includes hosts from all upstream documents', async t => {

@@ -16,7 +16,7 @@
 - 模板同名策略优先，来源显式策略次之（来源先到先得），自动节点策略最后；通配显式策略覆盖到的域名不再新增更具体的自动策略。
 - 混合地址列表逐项替换本地 proxy-server-nameserver 地址为同源 nameserver，过滤备用中的本地地址并去重。来源 policy 仅删除本地项，全删空则跳过该键。
 - 原始来源缓存不变，不导入其他来源 DNS 设置；旧缓存缺少 DNS 时保持兼容。
-- 节点 IP 不生成域名策略；策略激活所需 proxy-server-nameserver 为空时，使用最终 nameserver，仍空则使用来源安全 DNS 地址。
+- 节点 IP 不生成域名策略；最终 proxy-server-nameserver 完全保留模板配置，缺失、空数组或 null 均不自动补齐，不追加来源地址。
 
 ## Review Focus
 
@@ -32,7 +32,7 @@
 
 **Interfaces:** mergeSourceDns(output, sources)，sources 项为 {dns, proxies}；transformConfig 新增 sourceDns 数组（顺序同 upstreamProxyLists）。
 
-- [x] 编写测试：节点映射、混合回环替换、policy 字符串/数组过滤、优先级/通配、IP/无配置、别名链、策略激活、输入不变与国家过滤。
+- [x] 编写测试：节点映射、混合回环替换、policy 字符串/数组过滤、优先级/通配、IP/无配置、别名链、保留模板 proxy-server-nameserver、输入不变与国家过滤。
 - [x] 运行测试确认缺失功能导致失败。
 - [x] 实现 source-dns.js 并在 transformConfig 生成完成前调用。
 - [x] 运行相关测试。
@@ -48,6 +48,8 @@
 - [x] 运行 npm test 和 git diff --check，审查整个变更。
 
 ## Ledger
+
+- Ruling: 用户更正要求最终 proxy-server-nameserver 严格保持模板值，移除先前的自动激活补齐逻辑；来源策略仍生成和合并。
 
 - Ruling: 不改写模板本地 DNS，仅过滤来源 DNS — 本地模板可能明确依赖用户设备上服务。
 - Ruling: 完整来源策略独立于国家筛选导入，自动策略仅基于筛选保留的节点。

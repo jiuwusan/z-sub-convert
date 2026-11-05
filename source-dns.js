@@ -64,7 +64,6 @@ function nodeDomains(proxies, hosts) {
 function mergeSourceDns(output, sources) {
   const policies = Object.fromEntries(POLICY_KEYS.map(key => [key, new Map(mapping(output.dns?.[key]) ? Object.entries(output.dns[key]) : [])]));
   const changed = new Set();
-  const defaults = [];
   for (const { dns, proxyNames } of sources) {
     for (const key of POLICY_KEYS) {
       if (!mapping(dns?.[key])) continue;
@@ -81,7 +80,6 @@ function mergeSourceDns(output, sources) {
   for (const { dns, proxies, proxyNames } of sources) {
     const fallback = externalAddresses(dns?.nameserver).map(address => rewriteResolver(address, proxyNames));
     const resolvers = [...new Set(addresses(dns?.['proxy-server-nameserver']).flatMap(address => localResolver(address) ? fallback : [rewriteResolver(address, proxyNames)]))];
-    defaults.push(...resolvers);
     if (!resolvers.length) continue;
     for (const domain of nodeDomains(proxies, output.hosts)) {
       if (proxyPolicy.has(domain) || explicitPatterns.some(pattern => matchesDomain(pattern, domain))) continue;
@@ -92,11 +90,6 @@ function mergeSourceDns(output, sources) {
   if (!changed.size) return;
   output.dns ??= {};
   for (const key of changed) output.dns[key] = structuredClone(Object.fromEntries(policies[key]));
-  if (changed.has('proxy-server-nameserver-policy') && !addresses(output.dns['proxy-server-nameserver']).length) {
-    const resolvers = externalAddresses(output.dns.nameserver);
-    output.dns['proxy-server-nameserver'] = resolvers.length ? resolvers
-      : [...new Set([...defaults, ...[...proxyPolicy.values()].flatMap(externalAddresses)])];
-  }
 }
 
 module.exports = { mergeSourceDns };

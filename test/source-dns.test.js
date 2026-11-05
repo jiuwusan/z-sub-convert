@@ -17,7 +17,7 @@ test('source DNS generates policies per source domain and excludes IP nodes', ()
     [node('A.Example.'), node('192.0.2.1'), node('[2001:db8::1]'), node('a.example')], [node('b.example')]
   ], { sourceDns: [{ 'proxy-server-nameserver': ['1.1.1.1'] }, { 'proxy-server-nameserver': ['8.8.8.8'] }] });
   assert.deepEqual(output.dns['proxy-server-nameserver-policy'], { 'a.example': ['1.1.1.1'], 'b.example': ['8.8.8.8'] });
-  assert.deepEqual(output.dns['proxy-server-nameserver'], ['9.9.9.9']);
+  assert.equal(Object.hasOwn(output.dns, 'proxy-server-nameserver'), false);
 });
 
 test('local proxy DNS endpoints are replaced with same-source nameservers and deduplicated', () => {
@@ -26,7 +26,7 @@ test('local proxy DNS endpoints are replaced with same-source nameservers and de
       'proxy-server-nameserver': [local, '1.1.1.1'], nameserver: ['127.0.0.1:53', '8.8.8.8', '8.8.8.8']
     }] });
     assert.deepEqual(output.dns['proxy-server-nameserver-policy'], { 'node.example': ['8.8.8.8', '1.1.1.1'] });
-    assert.ok(output.dns['proxy-server-nameserver'].length);
+    assert.equal(Object.hasOwn(output.dns, 'proxy-server-nameserver'), false);
   }
 });
 
@@ -42,7 +42,21 @@ test('both source policies filter local values and retain external values and st
   for (const key of ['proxy-server-nameserver-policy', 'nameserver-policy']) assert.deepEqual(output.dns[key], {
     'mixed.example': ['https://doh.example/dns-query?note=127.0.0.1:53'], 'string.example': '8.8.8.8'
   });
-  assert.ok(output.dns['proxy-server-nameserver'].length);
+  assert.equal(Object.hasOwn(output.dns, 'proxy-server-nameserver'), false);
+});
+
+test('source policies preserve template proxy-server-nameserver exactly including empty and absent values', () => {
+  for (const dns of [undefined, {}, { 'proxy-server-nameserver': [] }, { 'proxy-server-nameserver': null },
+    { 'proxy-server-nameserver': ['127.0.0.1:5353', 'https://template.example/dns-query'] }]) {
+    const base = template(dns);
+    const output = transformConfig(base, [[node('node.example')]], { sourceDns: [{
+      'proxy-server-nameserver': ['1.1.1.1'], 'nameserver-policy': { 'app.example': '8.8.8.8' }
+    }] });
+    assert.deepEqual(output.dns['proxy-server-nameserver-policy'], { 'node.example': ['1.1.1.1'] });
+    assert.equal(Object.hasOwn(output.dns, 'proxy-server-nameserver'), Object.hasOwn(dns ?? {}, 'proxy-server-nameserver'));
+    assert.deepEqual(output.dns['proxy-server-nameserver'], dns?.['proxy-server-nameserver']);
+    assert.deepEqual(base, template(dns));
+  }
 });
 
 test('template and source explicit policies take priority over generated defaults', () => {
