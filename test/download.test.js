@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { attachment } = require('../download');
+const { attachment } = require('../src/controllers/download-response');
 
 function filename(header) { return decodeURIComponent(header.split("filename*=UTF-8''")[1]); }
 

@@ -8,14 +8,14 @@ const { mkdtemp, rm } = require('node:fs/promises');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 
-async function launch(t, directory) {
+async function launch(t, directory, cwd = join(__dirname, '..')) {
   const reservation = createServer();
   reservation.listen(0, '127.0.0.1');
   await once(reservation, 'listening');
   const port = reservation.address().port;
   await new Promise(resolve => reservation.close(resolve));
-  const child = spawn(process.execPath, ['server.js'], {
-    cwd: join(__dirname, '..'),
+  const child = spawn(process.execPath, [join(__dirname, '../server.js')], {
+    cwd,
     env: { ...process.env, HOST: '127.0.0.1', PORT: String(port), DATA_DIR: directory },
     stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true
   });
@@ -55,4 +55,19 @@ test('real startup serves the admin, persists initialization and rotates the log
   assert.equal((await reset(first.resetKey)).status, 403);
   assert.equal((await reset(second.resetKey)).status, 200);
   await second.stop();
+});
+
+test('startup outside the repository still resolves bundled templates and browser assets', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'managed-startup-cwd-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const app = await launch(t, join(directory, 'state'), directory);
+  const home = await fetch(app.base);
+  assert.equal(home.status, 200);
+  assert.match(await home.text(), /订阅管理/);
+  const script = await fetch(`${app.base}/admin.js`);
+  assert.equal(script.status, 200);
+  assert.match(script.headers.get('content-type'), /javascript/);
+  const status = await fetch(`${app.base}/api/status`);
+  assert.deepEqual(await status.json(), { initialized: false, authenticated: false });
+  await app.stop();
 });

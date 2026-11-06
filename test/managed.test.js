@@ -5,9 +5,9 @@ const { mkdtemp, rm, mkdir, readdir, readFile, writeFile } = require('node:fs/pr
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 const YAML = require('yaml');
-const { Store } = require('../store');
-const { Managed, CACHE_MS } = require('../managed');
-const { Notifications } = require('../notifications');
+const { Store } = require('../src/repositories/store.repository');
+const { Managed, CACHE_MS } = require('../src/services/managed.service');
+const { Notifications } = require('../src/services/notification.service');
 
 async function fixture(t, proxiesBySource) {
   const directory = await mkdtemp(join(tmpdir(), 'managed-cache-'));

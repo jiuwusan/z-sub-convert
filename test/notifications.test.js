@@ -4,8 +4,8 @@ const assert = require('node:assert/strict');
 const { mkdtemp, rm } = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const { join } = require('node:path');
-const { Store } = require('../store');
-const { Notifications, reasons } = require('../notifications');
+const { Store } = require('../src/repositories/store.repository');
+const { Notifications, reasons } = require('../src/services/notification.service');
 
 const GB = 1024n ** 3n;
 const NOW = Date.parse('2026-11-03T10:00:00+08:00');

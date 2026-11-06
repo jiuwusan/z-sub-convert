@@ -47,7 +47,7 @@ class CountryElement {
 
 async function countryHarness(record = {}) {
   const harness = await copyHarness();
-  const {context, elements} = harness;
+  const {context} = harness;
   context.document.createElement = tag => new CountryElement(tag);
   context.document.querySelector('#editor').open = true;
   const sourceList = new CountryElement('div');

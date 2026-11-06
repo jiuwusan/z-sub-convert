@@ -1,15 +1,15 @@
 'use strict';
 
 const { randomUUID, randomBytes } = require('node:crypto');
-const { readFile, writeFile, unlink } = require('node:fs/promises');
-const { join } = require('node:path');
 const YAML = require('yaml');
-const { AppError } = require('./auth');
-const { fetchSubscriptionDocument, parseSubscriptionDocument, SubscriptionError } = require('./fetch-subscriptions');
-const { transformConfig, countryGroupOptions, DEFAULT_COUNTRY_GROUP_TYPE, DEFAULT_COUNTRY_TEST_URL, DEFAULT_COUNTRY_TEST_INTERVAL } = require('./transform');
-const { aggregateUserinfo } = require('./userinfo');
-const { countryFilterOptions, summarizeCountries, countryCatalog } = require('./country');
-const { parseTemplate, validateRuleTemplate: validateTemplate, chooseNameservers, composeTemplate } = require('./template-parts');
+const { AppError } = require('../utils/errors');
+const { fetchSubscriptionDocument, SubscriptionError } = require('../gateways/subscription.gateway');
+const { transformConfig, countryGroupOptions, DEFAULT_COUNTRY_GROUP_TYPE, DEFAULT_COUNTRY_TEST_URL, DEFAULT_COUNTRY_TEST_INTERVAL } = require('../domain/transform');
+const { aggregateUserinfo } = require('../domain/userinfo');
+const { countryFilterOptions, summarizeCountries, countryCatalog } = require('../domain/country');
+const { parseTemplate, validateRuleTemplate: validateTemplate, chooseNameservers, composeTemplate } = require('../domain/template-parts');
+
+const { SourceCacheRepository } = require('../repositories/source-cache.repository');
 
 const CACHE_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_AGENT = 'clash-verge/v2.4.5';
@@ -38,6 +38,7 @@ function find(state, resource, id) {
 class Managed {
   constructor(store, options = {}) {
     this.store = store;
+    this.cacheRepository = options.cacheRepository || new SourceCacheRepository(() => store.directory);
     this.options = options;
     this.now = options.now || Date.now;
     this.inflight = new Map();
@@ -90,6 +91,12 @@ class Managed {
   packageInfo(items) {
     const { userInfo, coverage } = aggregateUserinfo(items);
     return { userInfo, packageCoverage: coverage };
+  }
+
+  subscriptionByKey(key) {
+    const sub = this.store.read().subscriptions.find(row => row.key === key);
+    if (!sub) throw new AppError('订阅不存在', 404);
+    return { id: sub.id, key: sub.key };
   }
 
   subscriptionInfo(id) {
@@ -221,21 +228,9 @@ class Managed {
     }
   }
 
-  async discard(file) { await unlink(join(this.store.directory, file)).catch(() => {}); }
+  discard(file) { return this.cacheRepository.discard(file); }
 
-  async cached(record) {
-    if (!record.cache) return null;
-    try {
-      const content = await readFile(join(this.store.directory, record.cache.file), 'utf8');
-      if (record.cache.file.endsWith('.yaml')) return { ...parseSubscriptionDocument(content), content };
-      const proxies = JSON.parse(content);
-      return Array.isArray(proxies) && proxies.length && proxies.every(proxy => proxy && typeof proxy.type === 'string' && proxy.type.trim())
-        ? { proxies, content: null } : null;
-    } catch (error) {
-      if (error.code === 'ENOENT' || error instanceof SyntaxError || error instanceof SubscriptionError) return null;
-      throw error;
-    }
-  }
+  cached(record) { return this.cacheRepository.read(record.cache); }
 
   refresh(id, trigger = 'manual') {
     const source = find(this.store.read(), 'sources', id);
@@ -258,8 +253,7 @@ class Managed {
     const outcome = { status: 200, error: null };
     try {
       const { content, userInfo } = await fetchSubscriptionDocument(new URL(source.url), { ...this.options, userAgent: source.userAgent });
-      file = `source-cache-${randomUUID()}.yaml`;
-      await writeFile(join(this.store.directory, file), content, { encoding: 'utf8', mode: 0o600 });
+      file = await this.cacheRepository.write(content);
       await this.store.update(state => {
         const record = find(state, 'sources', source.id);
         if (record.revision !== source.revision) throw new AppError('配置已变更，请重试更新', 409);

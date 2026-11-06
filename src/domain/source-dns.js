@@ -32,7 +32,7 @@ function rewriteResolver(address, proxyNames) {
 function domainName(value) {
   if (typeof value !== 'string') return null;
   const host = value.trim().replace(/\.$/u, '');
-  if (!host || isIP(host) || /[,\s/\\#?@%:\[\]]/u.test(host)) return null;
+  if (!host || isIP(host) || /[,\s/\\#?@%:[\]]/u.test(host)) return null;
   const domain = domainToASCII(host).toLowerCase();
   return domain && /^[a-z0-9_.-]+$/u.test(domain) && !domain.includes('..') ? domain : null;
 }

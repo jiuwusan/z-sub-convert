@@ -4,6 +4,12 @@
 
 生成配置时自动收集最终 `proxies[].server`，在 `rules` 最前添加去重的代理入口直连规则：域名使用精确 `DOMAIN,入口域名,DIRECT`，IPv4/IPv6 使用 `/32`、`/128` 的 IP 规则并附带 `no-resolve`。包括模板自有节点与聚合订阅节点，已有相同直连规则移到最前而不重复；其他模板规则保留原顺序。使用内置 `DIRECT`，不依赖可手动切换的直连策略组。不主动查询入口域名的 IP，也不修改 DNS、TUN 或节点的 `dialer-proxy` 配置；系统路由或其他设备的 TUN 转发仍需单独配置。
 
+## 项目结构与开发
+
+后端采用 `src` 分层：`routes` 负责路由，`controllers` 负责 HTTP 输入输出，`middleware` 负责认证/CSRF/限流与请求生命周期，`services` 负责业务用例，`gateways` 负责上游订阅和通知渠道请求，`repositories` 负责数据与缓存文件，`domain` 负责纯转换逻辑，`config` 负责配置，`utils` 负责共享错误与通用函数。`src/bootstrap` 是依赖组装入口，根目录 `server.js` 仅负责进程启动；`public` 保留原生前端。
+
+开发前阅读 [架构说明](docs/architecture.md)、[完整开发规范](docs/development.md) 和 [项目协作规则](AGENTS.md)。安装依赖后执行 `npm run check`，统一运行 ESLint、分层依赖/循环/I/O 边界检查及全量测试。CI 在 PR 和 master 推送时检查，镜像仅在 master 推送或手动触发且检查通过后发布。
+
 ## 订阅管理后台
 
 启动后打开 `http://127.0.0.1:25500/`（也支持 `/admin`）。首次使用直接设置用户名和密码，无需 key；密码须为 8–128 个字符。后续通过用户名、密码登录。账号密码以 scrypt 哈希存储，登录会话有效期为 12 小时，服务重启后重新登录。

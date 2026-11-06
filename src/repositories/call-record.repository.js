@@ -3,7 +3,7 @@
 const { mkdir, readdir, readFile, appendFile, writeFile, rename, unlink } = require('node:fs/promises');
 const { join } = require('node:path');
 const { randomUUID } = require('node:crypto');
-const { AppError } = require('./auth');
+const { AppError } = require('../utils/errors');
 const RETENTION_MS = 72 * 60 * 60 * 1000;
 const PAGE_SIZE = 50;
 const FILE_PATTERN = /^([a-zA-Z0-9-]+)-(\d{4}-\d{2}-\d{2})\.jsonl$/;

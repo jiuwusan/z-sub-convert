@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { transformConfig } = require('../transform');
+const { transformConfig } = require('../src/domain/transform');
 
 function template(dns) {
   return { ...(dns === undefined ? {} : { dns }), proxies: [], 'proxy-groups': [

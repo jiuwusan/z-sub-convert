@@ -1,7 +1,7 @@
 'use strict';
 
 const YAML = require('yaml');
-const { AppError } = require('./auth');
+const { AppError } = require('../utils/errors');
 const { transformConfig } = require('./transform');
 const RULE_KEYS = ['proxies', 'proxy-groups', 'rules'];
 const mapping = value => value && typeof value === 'object' && !Array.isArray(value);

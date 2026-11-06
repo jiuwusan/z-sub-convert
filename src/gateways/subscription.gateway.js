@@ -1,8 +1,8 @@
 'use strict';
 
-const YAML = require('yaml');
-const { parseUserinfo } = require('./userinfo');
-const { uniqueAddresses } = require('./template-parts');
+const { parseUserinfo } = require('../domain/userinfo');
+const { parseSubscriptionDocument, parseSubscription } = require('../domain/subscription-parser');
+const { SubscriptionError } = require('../utils/errors');
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
@@ -27,14 +27,6 @@ function networkErrorCodes(error) {
     if (Array.isArray(current.errors)) pending.push(...current.errors.slice(0, 8));
   }
   return [...codes];
-}
-
-class SubscriptionError extends Error {
-  constructor(message, statusCode, options) {
-    super(message, options);
-    this.name = 'SubscriptionError';
-    this.statusCode = statusCode;
-  }
 }
 
 function splitSubscriptionUrls(rawUrl) {
@@ -81,37 +73,6 @@ async function readBoundedBody(response, maxBytes) {
     offset += chunk.byteLength;
   }
   return new TextDecoder('utf-8', { ignoreBOM: true }).decode(body);
-}
-
-function parseSubscriptionDocument(content) {
-  let document;
-  try {
-    document = YAML.parse(content);
-  } catch (error) {
-    throw new SubscriptionError('Upstream subscription is not valid YAML', 502, { cause: error });
-  }
-  if (!document || !Array.isArray(document.proxies) || document.proxies.length === 0) {
-    throw new SubscriptionError('Upstream subscription contains no proxies', 502);
-  }
-  const hasInvalidProxy = document.proxies.some((proxy) => (
-    !proxy
-    || typeof proxy !== 'object'
-    || Array.isArray(proxy)
-    || typeof proxy.type !== 'string'
-    || proxy.type.trim() === ''
-  ));
-  if (hasInvalidProxy) throw new SubscriptionError('Upstream subscription contains an invalid proxy', 502);
-  return {
-    proxies: document.proxies,
-    dns: Object.fromEntries(['nameserver', 'proxy-server-nameserver', 'proxy-server-nameserver-policy', 'nameserver-policy']
-      .filter(key => Object.hasOwn(document.dns || {}, key)).map(key => [key, document.dns[key]])),
-    nameservers: uniqueAddresses(document.dns?.nameserver),
-    hosts: document.hosts && typeof document.hosts === 'object' && !Array.isArray(document.hosts) ? document.hosts : {}
-  };
-}
-
-function parseSubscription(content) {
-  return parseSubscriptionDocument(content).proxies;
 }
 
 async function fetchSubscriptionDocument(url, options = {}) {

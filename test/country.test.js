@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { detectCountry, compareCountries } = require('../country');
+const { detectCountry, compareCountries } = require('../src/domain/country');
 
 test('detects countries by flag, Chinese name, English name, and independent code', () => {
   assert.deepEqual(detectCountry('🇸🇬 premium'), {

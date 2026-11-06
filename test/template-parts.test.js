@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const YAML = require('yaml');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
-const { splitTemplate, composeTemplate, chooseNameservers, validateRuleTemplate } = require('../template-parts');
+const { splitTemplate, composeTemplate, chooseNameservers, validateRuleTemplate } = require('../src/domain/template-parts');
 const seed = YAML.parse(readFileSync(join(__dirname, '../prds/template.yaml'), 'utf8'));
 
 test('splits the initial seed into base, single addresses and rule fields without mutating it', () => {

@@ -4,7 +4,7 @@ const { mkdir, readFile, writeFile, rename, unlink } = require('node:fs/promises
 const { join } = require('node:path');
 const { randomUUID } = require('node:crypto');
 const YAML = require('yaml');
-const { splitTemplate } = require('./template-parts');
+const { splitTemplate } = require('../domain/template-parts');
 const DNS_NAMES = new Map([
   ['cloudflare-dns.com', 'Cloudflare'],
   ['dns.google', 'Google'],

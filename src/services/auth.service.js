@@ -1,19 +1,12 @@
 'use strict';
 
-const { randomBytes, scrypt, timingSafeEqual } = require('node:crypto');
+const { randomBytes, scrypt } = require('node:crypto');
 const { promisify } = require('node:util');
 const derive = promisify(scrypt);
 const SESSION_MS = 12 * 60 * 60 * 1000;
 
-class AppError extends Error {
-  constructor(message, statusCode = 400) { super(message); this.name = 'AppError'; this.statusCode = statusCode; }
-}
-
-function equal(left, right) {
-  const a = Buffer.from(String(left || ''));
-  const b = Buffer.from(String(right || ''));
-  return a.length === b.length && timingSafeEqual(a, b);
-}
+const { AppError } = require('../utils/errors');
+const { equal } = require('../utils/security');
 
 function credentials(username, password) {
   if (typeof username !== 'string' || !username.trim() || username.trim().length > 64) {
@@ -70,6 +63,14 @@ class Auth {
     const value = this.sessions.get(token);
     if (!value || value.expires <= this.now()) { this.sessions.delete(token); return null; }
     return { ...value };
+  }
+
+  status(token) {
+    const session = this.session(token);
+    return {
+      initialized: Boolean(this.store.read().account), authenticated: Boolean(session),
+      ...(session ? { username: session.username, csrf: session.csrf } : {})
+    };
   }
 
   logout(token) { this.sessions.delete(token); }

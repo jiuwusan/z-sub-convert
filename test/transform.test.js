@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { transformConfig } = require('../transform');
+const { transformConfig } = require('../src/domain/transform');
 
 test('merges source hosts with template priority and preserves input mappings', () => {
   const template = makeTemplate();

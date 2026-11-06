@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const { mkdtemp, rm, writeFile, readFile, mkdir } = require('node:fs/promises');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
-const { Store } = require('../store');
+const { Store } = require('../src/repositories/store.repository');
 
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'managed-store-'));

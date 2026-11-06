@@ -1,5 +1,5 @@
 'use strict';
-const { formatUserinfo } = require('./userinfo');
+const { formatUserinfo } = require('../domain/userinfo');
 
 function attachment(name, timestamp) {
   const safe = String(name || 'subscription').toWellFormed().normalize('NFC')

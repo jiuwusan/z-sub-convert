@@ -10,7 +10,7 @@ const {
   fetchSubscriptionDocument,
   splitSubscriptionUrls,
   fetchSubscriptions
-} = require('../fetch-subscriptions');
+} = require('../src/gateways/subscription.gateway');
 
 test('fetches and validates a complete document while preserving original text and legacy proxy extraction', async () => {
   const content = '\uFEFF# provider comment\r\ndns: { enable: true }\r\nproxies:\r\n  - { name: US, type: ss }\r\nproxy-groups: []\r\nrules: [MATCH,DIRECT]\r\n';

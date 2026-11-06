@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const { mkdtemp, rm, readFile, readdir, appendFile } = require('node:fs/promises');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
-const { CallRecords, RETENTION_MS } = require('../call-records');
+const { CallRecords, RETENTION_MS } = require('../src/repositories/call-record.repository');
 
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'call-records-'));

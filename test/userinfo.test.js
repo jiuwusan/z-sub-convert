@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseUserinfo, aggregateUserinfo, formatUserinfo } = require('../userinfo');
+const { parseUserinfo, aggregateUserinfo, formatUserinfo } = require('../src/domain/userinfo');
 
 test('parses only valid known nonnegative integer fields without inventing missing fields', () => {
   assert.deepEqual(parseUserinfo(' Upload = 001 ; download=2; total=9007199254740993; expire=1893456000; token=secret'),
