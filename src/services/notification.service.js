@@ -2,7 +2,7 @@
 
 const { createHash } = require('node:crypto');
 const { AppError } = require('../utils/errors');
-const { DAY, EXPIRY_REASON, TRAFFIC_REASON, CHANNELS, emptySettings, reasons, validate, message, hasUsableTraffic, testMessage } = require('../domain/notification');
+const { DAY, EXPIRY_REASON, TRAFFIC_REASON, CHANNELS, USAGE_NOTIFICATION_TITLE, emptySettings, reasons, validate, message, hasUsableTraffic, testMessage } = require('../domain/notification');
 const { sendNotification } = require('../gateways/notification.gateway');
 
 const BEIJING_OFFSET = 8 * 3600000;
@@ -104,7 +104,7 @@ class Notifications {
     const pendingCauses = usage ? [] : reasons(info, checkTime).filter(cause => cause === EXPIRY_REASON
       ? previous.day !== day : previous.trafficVersion !== trafficVersion);
     if (usage ? previous.usageDay === day || !hasUsableTraffic(info) : !pendingCauses.length) return;
-    const title = usage ? 'Mihomo 套餐使用情况' : [
+    const title = usage ? USAGE_NOTIFICATION_TITLE : [
       pendingCauses.includes(TRAFFIC_REASON) ? 'Mihomo 流量预警' : '',
       pendingCauses.includes(EXPIRY_REASON) ? 'Mihomo 套餐即将到期' : ''
     ].filter(Boolean).join(' / ');

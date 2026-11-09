@@ -126,6 +126,8 @@ test('Markdown notifications omit missing website links and keep unknown/unlimit
   assert.equal(f.sent[0].body.markdown.title, 'Mihomo 套餐即将到期');
   assert.equal(f.sent[2].body.card.header.title.content, '⚠️ Mihomo 套餐即将到期');
   assert.equal(f.sent[3].body.card.header.title.content, '📊 Mihomo 套餐使用情况');
+  assert.equal(f.sent[2].body.card.header.template, 'red');
+  assert.equal(f.sent[3].body.card.header.template, 'blue');
   assert.match(f.sent[1].body.markdown.text, /📊 Mihomo 套餐使用情况/);
   assert.doesNotMatch(f.sent[0].body.markdown.text, /访问官网/);
   assert.doesNotMatch(f.sent[2].body.card.elements[0].text.content, /访问官网/);

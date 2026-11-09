@@ -6,6 +6,7 @@ const GB = 1024n ** 3n;
 const EXPIRY_REASON = '套餐将在 3 天内到期或已到期';
 const TRAFFIC_REASON = '剩余流量小于 30 GB';
 const CHANNELS = { dingtalk: '钉钉', feishu: '飞书' };
+const USAGE_NOTIFICATION_TITLE = 'Mihomo 套餐使用情况';
 const emptySettings = () => ({ dingtalk: { url: '', secret: '' }, feishu: { url: '', secret: '' } });
 
 function remainingBytes(info) {
@@ -91,4 +92,4 @@ function testMessage(channel) {
     '**测试通知发送成功。**', '当前渠道已连接，可接收套餐使用情况、套餐到期和剩余流量预警。'].join('\n\n');
 }
 
-module.exports = { DAY, EXPIRY_REASON, TRAFFIC_REASON, CHANNELS, emptySettings, reasons, validate, escapeMarkdown, escapeFeishu, message, hasUsableTraffic, testMessage };
+module.exports = { DAY, EXPIRY_REASON, TRAFFIC_REASON, CHANNELS, USAGE_NOTIFICATION_TITLE, emptySettings, reasons, validate, escapeMarkdown, escapeFeishu, message, hasUsableTraffic, testMessage };
