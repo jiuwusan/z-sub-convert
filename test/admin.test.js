@@ -164,10 +164,13 @@ test('source website is optional, validated, persisted and editable without inva
   await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' });
   await f.login();
   const input = { name: '来源', url: 'https://provider.example/sub' };
-  const created = await f.request('/api/sources', 'POST', { ...input, website: ' https://provider.example/home#plans ' });
+  const created = await f.request('/api/sources', 'POST', { ...input, website: ' https://provider.example/home#plans ', username: ' demo@example.test ', password: 'example-secret' });
   assert.equal(created.status, 201);
   const source = await created.json();
   assert.equal(source.website, 'https://provider.example/home#plans');
+  assert.equal(source.username, 'demo@example.test');
+  assert.equal(source.hasPassword, true);
+  assert.equal(Object.hasOwn(source, 'password'), false);
   const path = `/api/sources/${source.id}`;
   await f.request(`${path}/refresh`, 'POST', {});
   for (const website of ['https://provider.example/new', '', '   ']) {
@@ -177,6 +180,7 @@ test('source website is optional, validated, persisted and editable without inva
     assert.equal((await (await f.request(path)).json()).website, website.trim());
     const state = await (await f.request('/api/state')).json();
     assert.equal(state.sources[0].website, website.trim());
+    assert.equal(Object.hasOwn(state.sources[0], 'password'), false);
     assert.equal(state.sources[0].cacheStatus, 'valid');
   }
   for (const website of ['invalid', 'javascript:alert(1)', 'ftp://provider.example', 'https://user:pass@provider.example', 123, 'https://provider.example/' + 'a'.repeat(8192)]) {
@@ -187,7 +191,14 @@ test('source website is optional, validated, persisted and editable without inva
   await f.request(path, 'PATCH', input);
   const restarted = await fixture(t, f.dataDir);
   await restarted.login();
-  assert.equal((await (await restarted.request(path)).json()).website, 'https://provider.example');
+  const restored = await (await restarted.request(path)).json();
+  assert.equal(restored.website, 'https://provider.example');
+  assert.equal(restored.username, 'demo@example.test');
+  assert.equal(restored.hasPassword, true);
+  assert.equal(Object.hasOwn(restored, 'password'), false);
+  const cleared = await (await restarted.request(path, 'PATCH', { ...input, username: '', password: '' })).json();
+  assert.equal(cleared.username, '');
+  assert.equal(cleared.hasPassword, false);
   assert.equal(f.upstreamCalls(), 1);
 });
 

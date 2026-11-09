@@ -8,12 +8,22 @@ const TRAFFIC_REASON = '剩余流量小于 30 GB';
 const CHANNELS = { dingtalk: '钉钉', feishu: '飞书' };
 const emptySettings = () => ({ dingtalk: { url: '', secret: '' }, feishu: { url: '', secret: '' } });
 
+function remainingBytes(info) {
+  if (!info?.total || info.total === '0' || info.upload === undefined || info.download === undefined) return null;
+  return BigInt(info.total) - BigInt(info.upload) - BigInt(info.download);
+}
+
+function hasUsableTraffic(info) {
+  const bytes = remainingBytes(info);
+  return info?.total === '0' || (bytes !== null && bytes >= 30n * GB);
+}
+
 function reasons(info, now) {
   if (!info) return [];
   const result = [];
   if (info.expire && info.expire !== '0' && Number(info.expire) * 1000 <= now + 3 * DAY) result.push(EXPIRY_REASON);
-  if (info.total && info.total !== '0' && info.upload !== undefined && info.download !== undefined
-    && BigInt(info.total) - BigInt(info.upload) - BigInt(info.download) < 30n * GB) result.push(TRAFFIC_REASON);
+  const bytes = remainingBytes(info);
+  if (bytes !== null && bytes < 30n * GB) result.push(TRAFFIC_REASON);
   return result;
 }
 
@@ -54,20 +64,31 @@ function escapeFeishu(value) {
     .replace(/[&<>\\`*_[\]{}()#!|~+\-/$"':]/g, char => `&#${char.charCodeAt(0)};`);
 }
 
+function identity(source, channel) {
+  const escape = channel === 'feishu' ? escapeFeishu : escapeMarkdown;
+  const name = escape(source.name);
+  const website = source.website ? new URL(source.website).href.replace(/[()<>\\]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`) : '';
+  const platform = website ? `[${name} · 访问官网](${website})` : name;
+  return [`**平台：** ${platform}`, ...(source.username ? [`**账号：** ${escape(source.username)}`] : [])];
+}
+
 function message(source, causes, channel) {
   const info = source.cache.userInfo;
+  const bytes = remainingBytes(info);
   let remaining = '未提供';
   if (info.total === '0') remaining = '无限流量';
-  else if (info.total !== undefined && info.upload !== undefined && info.download !== undefined) {
-    const bytes = BigInt(info.total) - BigInt(info.upload) - BigInt(info.download);
+  else if (bytes !== null) {
     remaining = `${(Number(bytes > 0n ? bytes : 0n) / Number(GB)).toFixed(2)} GB`;
   }
   const time = value => new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-  const website = source.website ? new URL(source.website).href.replace(/[()<>\\]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`) : '';
-  const escape = channel === 'feishu' ? escapeFeishu : escapeMarkdown;
-  return [`**来源：** ${escape(source.name)}`, `**预警原因：** ${causes.join('；')}`,
+  return [...identity(source, channel), ...(causes.length ? [`**预警原因：** ${causes.join('；')}`] : []),
     `**剩余流量：** ${remaining}`, `**到期时间：** ${info.expire === '0' ? '长期有效' : info.expire ? time(Number(info.expire) * 1000) : '未提供'}`,
-    ...(website ? [`**官网：** [访问官网](${website})`] : []), `**更新时间：** ${time(source.lastSuccessAt)}`].join('\n\n');
+    `**更新时间：** ${time(source.lastSuccessAt)}`].join('\n\n');
 }
 
-module.exports = { DAY, EXPIRY_REASON, TRAFFIC_REASON, CHANNELS, emptySettings, reasons, validate, escapeMarkdown, escapeFeishu, message };
+function testMessage(channel) {
+  return [...identity({ name: 'E-IX', website: 'https://provider.example/', username: 'subscriber@example.test' }, channel),
+    '**测试通知发送成功。**', '当前渠道已连接，可接收套餐使用情况、套餐到期和剩余流量预警。'].join('\n\n');
+}
+
+module.exports = { DAY, EXPIRY_REASON, TRAFFIC_REASON, CHANNELS, emptySettings, reasons, validate, escapeMarkdown, escapeFeishu, message, hasUsableTraffic, testMessage };

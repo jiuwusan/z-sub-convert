@@ -38,6 +38,36 @@ async function fixture(t) {
   return { options, store, service, sent, fetchImpl, tick: ms => { now += ms; }, fail: value => { fail = value; } };
 }
 
+test('daily usage waits until 09:00 and sends after traffic recovery', async t => {
+  const f = await fixture(t);
+  await f.service.save(settings);
+  f.tick(-3600001);
+  await f.service.check('one');
+  assert.equal(f.sent.length, 0);
+  f.tick(1);
+  await f.service.check('one');
+  await f.service.check('one');
+  assert.equal(f.sent.length, 2);
+  await f.store.update(state => {
+    const source = state.sources[0];
+    source.username = 'demo@example.test';
+    source.password = 'example-secret';
+    source.cache.userInfo.total = String(30n * GB);
+    source.cache.file = 'recovered';
+  });
+  await f.service.check('one');
+  const restarted = new Notifications(await Store.open(f.options), { now: () => NOW, fetchImpl: f.fetchImpl });
+  await restarted.check('one');
+  assert.equal(f.sent.length, 4);
+  for (const item of f.sent.slice(2)) {
+    const payload = JSON.stringify(item.body);
+    assert.match(payload, /📊 Mihomo 套餐使用情况/);
+    assert.match(payload, /\[来源一 · 访问官网\]\(https:\/\/provider\.example\/\)/);
+    assert.match(payload, /账号.*demo@example.test/);
+    assert.doesNotMatch(payload, /example-secret|预警原因/);
+  }
+});
+
 test('notification configuration validates platform URLs and survives restart', async t => {
   const f = await fixture(t);
   assert.equal(f.service.settings().dingtalk.url, '');
@@ -66,19 +96,19 @@ test('alerts use DingTalk Markdown and Feishu Markdown cards with escaped names 
   assert.match(ding.markdown.text, /^### ⚠️ Mihomo 流量预警 \/ Mihomo 套餐即将到期\n/);
   assert.ok(ding.markdown.text.includes('机场\\*\\[测试\\]&lt;at id=all&gt; 新行'));
   assert.match(ding.markdown.text, /\*\*剩余流量：\*\* 29.00 GB/);
-  assert.ok(ding.markdown.text.includes('[访问官网](https://provider.example/plans%28annual%29?from=notice)'));
+  assert.ok(ding.markdown.text.includes(' · 访问官网](https://provider.example/plans%28annual%29?from=notice)'));
   const feishu = f.sent[1].body;
   assert.equal(feishu.msg_type, 'interactive');
   assert.equal(feishu.card.config.wide_screen_mode, true);
   assert.equal(feishu.card.header.title.tag, 'plain_text');
   assert.equal(feishu.card.header.title.content, '⚠️ Mihomo 流量预警 / Mihomo 套餐即将到期');
   assert.equal(feishu.card.elements[0].text.tag, 'lark_md');
-  assert.match(feishu.card.elements[0].text.content, /\*\*来源：\*\*/);
+  assert.match(feishu.card.elements[0].text.content, /\*\*平台：\*\*/);
   assert.ok(feishu.card.elements[0].text.content.includes('机场&#42;&#91;测试&#93;&#60;at id=all&#62; 新行'));
   for (const content of [ding.markdown.text, feishu.card.elements[0].text.content]) {
     assert.match(content, /\*\*预警原因：\*\* [^\n]+\n\n\*\*剩余流量：\*\*/);
     assert.match(content, /\*\*剩余流量：\*\* 29.00 GB\n\n\*\*到期时间：\*\*/);
-    assert.match(content, /\*\*官网：\*\* \[访问官网\]/);
+    assert.match(content, /\*\*平台：\*\* \[.+ · 访问官网\]\(/);
     assert.match(content, /\*\*更新时间：\*\* 2026\/11\/3 10:00:00$/);
   }
   assert.doesNotMatch(JSON.stringify(feishu), /secret.example|<at id=all>/);
@@ -94,9 +124,11 @@ test('Markdown notifications omit missing website links and keep unknown/unlimit
   await f.service.check();
   assert.match(f.sent[0].body.markdown.text, /无限流量/);
   assert.equal(f.sent[0].body.markdown.title, 'Mihomo 套餐即将到期');
-  assert.equal(f.sent[1].body.card.header.title.content, '⚠️ Mihomo 套餐即将到期');
+  assert.equal(f.sent[2].body.card.header.title.content, '⚠️ Mihomo 套餐即将到期');
+  assert.equal(f.sent[3].body.card.header.title.content, '📊 Mihomo 套餐使用情况');
+  assert.match(f.sent[1].body.markdown.text, /📊 Mihomo 套餐使用情况/);
   assert.doesNotMatch(f.sent[0].body.markdown.text, /访问官网/);
-  assert.doesNotMatch(f.sent[1].body.card.elements[0].text.content, /访问官网/);
+  assert.doesNotMatch(f.sent[2].body.card.elements[0].text.content, /访问官网/);
 });
 
 test('optional mention targets persist and are included in both test and alert messages', async t => {
@@ -170,7 +202,7 @@ test('signed test messages use platform payloads and business errors fail withou
   assert.ok(f.sent[1].body.sign);
   assert.equal(f.sent[1].body.msg_type, 'interactive');
   assert.equal(f.sent[0].body.markdown.title, 'Mihomo 通知测试');
-  assert.equal(f.sent[1].body.card.header.title.content, '⚠️ Mihomo 通知测试');
+  assert.equal(f.sent[1].body.card.header.title.content, '✅ Mihomo 通知测试');
   assert.equal(f.sent[0].init.redirect, 'error');
   assert.ok(f.sent[0].init.signal);
   f.fail(true);
@@ -214,7 +246,7 @@ test('late sends crossing Beijing midnight do not consume the next morning expir
   assert.equal(f.sent.length, 1);
   await f.service.check();
   assert.equal(f.sent.length, 1);
-  f.tick(8 * 3600000);
+  f.tick(9 * 3600000);
   await f.service.check();
   assert.equal(f.sent.length, 3);
   assert.equal(f.sent[1].body.markdown.title, 'Mihomo 套餐即将到期');
@@ -276,8 +308,8 @@ test('concurrent source events are retained without checking unrelated cached so
   await Promise.all([first, second, third]);
   assert.equal(f.sent.length, 3);
   assert.match(f.sent[0].body.markdown.text, /来源一/);
-  assert.match(f.sent[1].body.markdown.text, /\*\*来源：\*\* two/);
-  assert.match(f.sent[2].body.markdown.text, /\*\*来源：\*\* three/);
+  assert.match(f.sent[1].body.markdown.text, /\*\*平台：\*\* \[two · 访问官网\]/);
+  assert.match(f.sent[2].body.markdown.text, /\*\*平台：\*\* \[three · 访问官网\]/);
   assert.doesNotMatch(JSON.stringify(f.sent), /unrelated/);
 });
 
@@ -412,40 +444,41 @@ test('expiry stays daily while subsequent updates still alert on low traffic', a
   assert.doesNotMatch(f.sent[2].body.markdown.text, /剩余流量小于/);
   await f.store.update(state => { state.sources[0].cache.file = 'cache-3.yaml'; state.sources[0].cache.userInfo.total = String(100n * GB); });
   await f.service.check();
-  assert.equal(f.sent.length, 3);
+  assert.equal(f.sent.length, 4);
+  assert.equal(f.sent[3].body.markdown.title, 'Mihomo 套餐使用情况');
 });
 
-test('expiry waits until Beijing 08:00 across restart without consuming its daily quota', async t => {
+test('expiry waits until Beijing 09:00 across restart without consuming its daily quota', async t => {
   const f = await fixture(t);
   await f.service.save(settings);
-  await f.store.update(state => { state.sources[0].cache.userInfo.total = String(100n * GB); });
+  await f.store.update(state => { delete state.sources[0].cache.userInfo.total; });
   let now = Date.parse('2026-11-04T00:00:00+08:00');
   let service = new Notifications(f.store, { now: () => now, fetchImpl: f.fetchImpl });
   await service.check();
-  now = Date.parse('2026-11-04T07:59:59.999+08:00');
+  now = Date.parse('2026-11-04T08:59:59.999+08:00');
   await service.check();
   assert.equal(f.sent.length, 0);
   assert.deepEqual(f.store.read().notifications.sent, {});
   service = new Notifications(await Store.open(f.options), { now: () => now, fetchImpl: f.fetchImpl });
-  now = Date.parse('2026-11-04T00:00:00Z'); // 08:00 Beijing, independent of server time zone.
+  now = Date.parse('2026-11-04T01:00:00Z'); // 09:00 Beijing, independent of server time zone.
   await service.check();
   await service.check();
   assert.equal(f.sent.length, 2);
   now = Date.parse('2026-11-05T00:00:00+08:00');
   await service.check();
-  now = Date.parse('2026-11-05T07:59:59.999+08:00');
+  now = Date.parse('2026-11-05T08:59:59.999+08:00');
   await service.check();
   assert.equal(f.sent.length, 2);
-  now = Date.parse('2026-11-05T08:00:00+08:00');
+  now = Date.parse('2026-11-05T09:00:00+08:00');
   await service.check();
   await service.check();
   assert.equal(f.sent.length, 4);
 });
 
-test('traffic and expiry both wait until Beijing 08:00 without consuming send quotas', async t => {
+test('traffic and expiry both wait until Beijing 09:00 without consuming send quotas', async t => {
   const f = await fixture(t);
   await f.service.save(settings);
-  let now = Date.parse('2026-11-04T07:59:59+08:00');
+  let now = Date.parse('2026-11-04T08:59:59+08:00');
   let service = new Notifications(f.store, { now: () => now, fetchImpl: f.fetchImpl });
   await service.check();
   assert.equal(f.sent.length, 0);
@@ -460,20 +493,20 @@ test('traffic and expiry both wait until Beijing 08:00 without consuming send qu
   assert.equal(f.sent.length, 2);
 });
 
-test('traffic-only alerts wait until Beijing 08:00 across restart and still send on subsequent updates', async t => {
+test('traffic-only alerts wait until Beijing 09:00 across restart and still send on subsequent updates', async t => {
   const f = await fixture(t);
   await f.service.save(settings);
   await f.store.update(state => { state.sources[0].cache.userInfo.expire = '0'; });
   let now = Date.parse('2026-11-06T00:00:00+08:00');
   let service = new Notifications(f.store, { now: () => now, fetchImpl: f.fetchImpl });
   await service.check('one');
-  now = Date.parse('2026-11-06T07:59:59.999+08:00');
+  now = Date.parse('2026-11-06T08:59:59.999+08:00');
   await service.check('one');
   assert.equal(f.sent.length, 0);
   assert.deepEqual(f.store.read().notifications.sent, {});
   const store = await Store.open(f.options);
   service = new Notifications(store, { now: () => now, fetchImpl: f.fetchImpl });
-  now = Date.parse('2026-11-06T00:00:00Z');
+  now = Date.parse('2026-11-06T01:00:00Z');
   await service.check('one');
   assert.equal(f.sent.length, 2);
   assert.equal(f.sent[0].body.markdown.title, 'Mihomo 流量预警');

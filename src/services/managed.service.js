@@ -35,6 +35,10 @@ function find(state, resource, id) {
   return record;
 }
 
+function sourceDetails({ cache, password, ...source }) {
+  return { ...source, updateMode: source.updateMode ?? 'auto', hasPassword: Boolean(password) };
+}
+
 class Managed {
   constructor(store, options = {}) {
     this.store = store;
@@ -47,8 +51,8 @@ class Managed {
   get(resource, id) {
     if (!RESOURCES.includes(resource)) throw new AppError('记录类型不存在', 404);
     const record = find(this.store.read(), resource, id);
+    if (resource === 'sources') return sourceDetails(record);
     const { cache, ...safe } = record;
-    if (resource === 'sources') return { ...safe, updateMode: safe.updateMode ?? 'auto' };
     if (resource === 'subscriptions') return { ...safe, customCountries: safe.customCountries ?? false, countryCodes: safe.countryCodes ?? [], removeFailover: safe.removeFailover ?? false, evenNodesFirst: safe.evenNodesFirst ?? false, nameserverSourceIds: safe.nameserverSourceIds ?? [], countryGroupType: safe.countryGroupType ?? DEFAULT_COUNTRY_GROUP_TYPE, countryTestUrl: safe.countryTestUrl ?? DEFAULT_COUNTRY_TEST_URL, countryTestInterval: safe.countryTestInterval ?? DEFAULT_COUNTRY_TEST_INTERVAL };
     return safe;
   }
@@ -62,8 +66,8 @@ class Managed {
   list() {
     const state = this.store.read();
     return {
-      sources: state.sources.map(({ url, cache, ...row }) => ({
-        ...row, updateMode: row.updateMode ?? 'auto', urlSummary: summarizeUrl(url), cacheStatus: this.status({ ...row, cache }), refreshing: this.inflight.has(row.id),
+      sources: state.sources.map(({ url, cache, password, ...row }) => ({
+        ...row, hasPassword: Boolean(password), updateMode: row.updateMode ?? 'auto', urlSummary: summarizeUrl(url), cacheStatus: this.status({ ...row, cache }), refreshing: this.inflight.has(row.id),
         userInfo: cache?.userInfo ?? null
       })),
       templates: state.templates.map(({ content, ...row }) => row),
@@ -123,6 +127,14 @@ class Managed {
       if (!/^[\x20-\x7e]+$/.test(userAgent)) throw new AppError('User-Agent 只能包含可打印 ASCII 字符');
       if (input.updateMode !== undefined && !['auto', 'manual'].includes(input.updateMode)) throw new AppError('更新模式须为自动更新或仅手动更新');
       fields = { name, url: url.href, userAgent };
+      if (input.username !== undefined) {
+        if (typeof input.username !== 'string' || input.username.trim().length > 320) throw new AppError('账号不能超过 320 个字符');
+        fields.username = input.username.trim();
+      }
+      if (input.password !== undefined) {
+        if (typeof input.password !== 'string' || input.password.length > 1024) throw new AppError('密码不能超过 1024 个字符');
+        fields.password = input.password;
+      }
       if (input.website !== undefined) {
         if (typeof input.website !== 'string' || input.website.trim().length > 8192) throw new AppError('官网须为不超过 8192 个字符的网址');
         const website = input.website.trim();
@@ -198,10 +210,12 @@ class Managed {
         if (resource === 'subscriptions') record.key = randomBytes(24).toString('hex');
         if (resource === 'sources') Object.assign(record, { revision: 1, cache: null, lastSuccessAt: null, lastResult: null });
         state[resource].push(record);
+        if (resource === 'sources') return sourceDetails(record);
         const { cache, ...safe } = record;
         return safe;
       }
       if (changed) existing.revision += 1;
+      if (resource === 'sources') return sourceDetails(existing);
       const { cache, ...safe } = existing;
       return safe;
     });

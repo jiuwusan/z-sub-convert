@@ -4,13 +4,13 @@ const { createHmac } = require('node:crypto');
 const { AppError } = require('../utils/errors');
 const { CHANNELS } = require('../domain/notification');
 
-async function sendNotification(channel, config, content, title = 'Mihomo 通知测试', { fetchImpl = fetch, now = Date.now } = {}) {
+async function sendNotification(channel, config, content, title = 'Mihomo 通知测试', { fetchImpl = fetch, now = Date.now, icon = '⚠️' } = {}) {
   const url = new URL(config.url);
   if (config.mention) content += channel === 'dingtalk' ? `\n\n@${config.mention}` : `\n\n<at id=${config.mention}></at>`;
   const body = channel === 'dingtalk'
-    ? { msgtype: 'markdown', markdown: { title, text: `### ⚠️ ${title}\n\n${content}` } }
+    ? { msgtype: 'markdown', markdown: { title, text: `### ${icon} ${title}\n\n${content}` } }
     : { msg_type: 'interactive', card: { config: { wide_screen_mode: true },
-      header: { title: { tag: 'plain_text', content: `⚠️ ${title}` }, template: 'red' },
+      header: { title: { tag: 'plain_text', content: `${icon} ${title}` }, template: 'red' },
       elements: [{ tag: 'div', text: { tag: 'lark_md', content } }] } };
   if (channel === 'dingtalk' && config.mention) body.at = { atMobiles: [config.mention], isAtAll: false };
   if (config.secret) {

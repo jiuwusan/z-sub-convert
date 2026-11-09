@@ -3,7 +3,7 @@
 const $ = selector => document.querySelector(selector);
 const state = { tab: 'subscriptions', data: { sources: [], bases: [], nameservers: [], templates: [], subscriptions: [] }, csrf: '', mode: 'login', initialized: false, authenticated: false, ready: false, route: '', returnTo: 'subscriptions', navigation: 0, editing: null, calls: null, previewContent: '', previewSourceId: null, refreshing: new Set(), allBusy: false };
 const labels = {
-  notifications: { title: '通知设置', description: '配置钉钉和飞书，接收套餐到期与剩余流量提醒。', add: '' },
+  notifications: { title: '通知设置', description: '配置钉钉和飞书，接收套餐使用情况和预警。', add: '' },
   subscriptions: { title: '系统订阅', list: '全部订阅', add: '新增订阅', description: '组合来源、基础模板、DNS 和规则模板，生成专属订阅链接。', heads: ['订阅名称', '第三方来源', '模板配置', 'DNS 配置', '操作'] },
   sources: { title: '第三方订阅源', list: '全部来源', add: '新增来源', description: '维护并更新第三方来源，缓存结果供所有关联订阅复用。', heads: ['来源名称', '订阅链接摘要 / User-Agent', '关联订阅', '套餐信息', '缓存状态', '最近更新成功', '最近更新结果', '操作'] },
   bases: { title: '基础模板', list: '全部基础模板', add: '新增基础模板', description: '维护端口、运行模式与 DNS 基础设置，为系统订阅选择一份基础配置。', heads: ['模板名称', '关联订阅', '操作'] },
@@ -401,7 +401,18 @@ async function edit(resource, id) {
   if (resource === 'sources') {
     const website = field('官网（可选）', 'website', record.website ?? '', { type: 'url', maxLength: 8192, placeholder: 'https://example.com' });
     website.input.required = false;
-    fields.append(website.label);
+    const username = field('账号（可选）', 'username', record.username ?? '', { maxLength: 320 });
+    username.input.required = false;
+    const password = field('密码（可选）', 'password', '', { type: 'password', maxLength: 1024, placeholder: record.hasPassword ? '留空保留已保存密码' : '' });
+    password.input.required = false;
+    password.input.autocomplete = 'new-password';
+    fields.append(website.label, username.label, password.label);
+    if (record.hasPassword) {
+      const clear = node('label', 'source-option');
+      const checkbox = node('input'); checkbox.type = 'checkbox'; checkbox.name = 'clearPassword';
+      clear.append(checkbox, node('span', '', '清除已保存密码'));
+      fields.append(clear);
+    }
     fields.append(field('第三方订阅链接', 'url', record.url, { type: 'url', maxLength: 8192, placeholder: 'https://example.com/subscribe?token=…' }).label);
     fields.append(field('User-Agent', 'userAgent', record.userAgent ?? 'clash-verge/v2.4.5', { maxLength: 512 }).label);
     const mode = node('label', 'source-option');
@@ -802,7 +813,12 @@ $('#editor-form').addEventListener('submit', async event => {
     const { resource, id } = state.editing;
     const form = new FormData(event.target);
     const body = { name: form.get('name') };
-    if (resource === 'sources') Object.assign(body, { website: form.get('website'), url: form.get('url'), userAgent: form.get('userAgent'), updateMode: form.has('manualUpdate') ? 'manual' : 'auto' });
+    if (resource === 'sources') {
+      Object.assign(body, { website: form.get('website'), username: form.get('username'), url: form.get('url'), userAgent: form.get('userAgent'), updateMode: form.has('manualUpdate') ? 'manual' : 'auto' });
+      const password = form.get('password');
+      if (form.has('clearPassword')) body.password = '';
+      else if (password) body.password = password;
+    }
     else if (['bases', 'templates'].includes(resource)) body.content = form.get('content');
     else if (resource === 'nameservers') body.address = form.get('address');
     else {
