@@ -6,6 +6,7 @@ const { AppError } = require('../utils/errors');
 const { fetchSubscriptionDocument, SubscriptionError } = require('../gateways/subscription.gateway');
 const { transformConfig, countryGroupOptions, DEFAULT_COUNTRY_GROUP_TYPE, DEFAULT_COUNTRY_TEST_URL, DEFAULT_COUNTRY_TEST_INTERVAL } = require('../domain/transform');
 const { aggregateUserinfo } = require('../domain/userinfo');
+const { DEFAULT_TRAFFIC_THRESHOLD_GIB, MAX_TRAFFIC_THRESHOLD_GIB } = require('../domain/notification');
 const { countryFilterOptions, summarizeCountries, countryCatalog } = require('../domain/country');
 const { parseTemplate, validateRuleTemplate: validateTemplate, chooseNameservers, composeTemplate } = require('../domain/template-parts');
 
@@ -36,7 +37,8 @@ function find(state, resource, id) {
 }
 
 function sourceDetails({ cache, password, ...source }) {
-  return { ...source, updateMode: source.updateMode ?? 'auto', hasPassword: Boolean(password) };
+  return { ...source, updateMode: source.updateMode ?? 'auto', hasPassword: Boolean(password),
+    trafficThresholdGiB: source.trafficThresholdGiB ?? DEFAULT_TRAFFIC_THRESHOLD_GIB };
 }
 
 class Managed {
@@ -68,6 +70,7 @@ class Managed {
     return {
       sources: state.sources.map(({ url, cache, password, ...row }) => ({
         ...row, hasPassword: Boolean(password), updateMode: row.updateMode ?? 'auto', urlSummary: summarizeUrl(url), cacheStatus: this.status({ ...row, cache }), refreshing: this.inflight.has(row.id),
+        trafficThresholdGiB: row.trafficThresholdGiB ?? DEFAULT_TRAFFIC_THRESHOLD_GIB,
         userInfo: cache?.userInfo ?? null
       })),
       templates: state.templates.map(({ content, ...row }) => row),
@@ -126,6 +129,10 @@ class Managed {
       const userAgent = text(input.userAgent ?? DEFAULT_AGENT, 'User-Agent', 512);
       if (!/^[\x20-\x7e]+$/.test(userAgent)) throw new AppError('User-Agent 只能包含可打印 ASCII 字符');
       if (input.updateMode !== undefined && !['auto', 'manual'].includes(input.updateMode)) throw new AppError('更新模式须为自动更新或仅手动更新');
+      const threshold = input.trafficThresholdGiB;
+      if (threshold !== undefined && (!Number.isInteger(threshold) || threshold < 1 || threshold > MAX_TRAFFIC_THRESHOLD_GIB)) {
+        throw new AppError('流量告警阈值须为有效的正整数（GiB）');
+      }
       fields = { name, url: url.href, userAgent };
       if (input.username !== undefined) {
         if (typeof input.username !== 'string' || input.username.trim().length > 320) throw new AppError('账号不能超过 320 个字符');
@@ -175,6 +182,7 @@ class Managed {
       const existing = id ? find(state, resource, id) : null;
       if (resource === 'sources') {
         fields.updateMode = input.updateMode ?? existing?.updateMode ?? 'auto';
+        fields.trafficThresholdGiB = input.trafficThresholdGiB ?? existing?.trafficThresholdGiB ?? DEFAULT_TRAFFIC_THRESHOLD_GIB;
         fields.website ??= existing?.website ?? '';
       }
       if (resource === 'subscriptions') {

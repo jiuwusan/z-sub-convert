@@ -5,6 +5,8 @@ const DAY = 86400000;
 const GB = 1024n ** 3n;
 const EXPIRY_REASON = '套餐将在 3 天内到期或已到期';
 const TRAFFIC_REASON = '剩余流量小于 30 GB';
+const DEFAULT_TRAFFIC_THRESHOLD_GIB = 30;
+const MAX_TRAFFIC_THRESHOLD_GIB = 2 ** 33 - 1;
 const CHANNELS = { dingtalk: '钉钉', feishu: '飞书' };
 const USAGE_NOTIFICATION_TITLE = 'Mihomo 套餐使用情况';
 const emptySettings = () => ({ dingtalk: { url: '', secret: '' }, feishu: { url: '', secret: '' } });
@@ -14,17 +16,17 @@ function remainingBytes(info) {
   return BigInt(info.total) - BigInt(info.upload) - BigInt(info.download);
 }
 
-function hasUsableTraffic(info) {
+function hasUsableTraffic(info, threshold = DEFAULT_TRAFFIC_THRESHOLD_GIB) {
   const bytes = remainingBytes(info);
-  return info?.total === '0' || (bytes !== null && bytes >= 30n * GB);
+  return info?.total === '0' || (bytes !== null && bytes >= BigInt(threshold) * GB);
 }
 
-function reasons(info, now) {
+function reasons(info, now, threshold = DEFAULT_TRAFFIC_THRESHOLD_GIB) {
   if (!info) return [];
   const result = [];
   if (info.expire && info.expire !== '0' && Number(info.expire) * 1000 <= now + 3 * DAY) result.push(EXPIRY_REASON);
   const bytes = remainingBytes(info);
-  if (bytes !== null && bytes < 30n * GB) result.push(TRAFFIC_REASON);
+  if (bytes !== null && bytes < BigInt(threshold) * GB) result.push(TRAFFIC_REASON);
   return result;
 }
 
@@ -82,7 +84,10 @@ function message(source, causes, channel) {
     remaining = `${(Number(bytes > 0n ? bytes : 0n) / Number(GB)).toFixed(2)} GB`;
   }
   const time = value => new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-  return [...identity(source, channel), ...(causes.length ? [`**预警原因：** ${causes.join('；')}`] : []),
+  const threshold = source.trafficThresholdGiB ?? DEFAULT_TRAFFIC_THRESHOLD_GIB;
+  const causeText = causes.map(cause => cause === TRAFFIC_REASON && threshold !== DEFAULT_TRAFFIC_THRESHOLD_GIB
+    ? `剩余流量小于 ${threshold} GiB` : cause).join('；');
+  return [...identity(source, channel), ...(causeText ? [`**预警原因：** ${causeText}`] : []),
     `**剩余流量：** ${remaining}`, `**到期时间：** ${info.expire === '0' ? '长期有效' : info.expire ? time(Number(info.expire) * 1000) : '未提供'}`,
     `**更新时间：** ${time(source.lastSuccessAt)}`].join('\n\n');
 }
@@ -92,4 +97,4 @@ function testMessage(channel) {
     '**测试通知发送成功。**', '当前渠道已连接，可接收套餐使用情况、套餐到期和剩余流量预警。'].join('\n\n');
 }
 
-module.exports = { DAY, EXPIRY_REASON, TRAFFIC_REASON, CHANNELS, USAGE_NOTIFICATION_TITLE, emptySettings, reasons, validate, escapeMarkdown, escapeFeishu, message, hasUsableTraffic, testMessage };
+module.exports = { DAY, EXPIRY_REASON, TRAFFIC_REASON, DEFAULT_TRAFFIC_THRESHOLD_GIB, MAX_TRAFFIC_THRESHOLD_GIB, CHANNELS, USAGE_NOTIFICATION_TITLE, emptySettings, reasons, validate, escapeMarkdown, escapeFeishu, message, hasUsableTraffic, testMessage };

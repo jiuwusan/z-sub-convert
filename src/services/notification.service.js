@@ -101,9 +101,10 @@ class Notifications {
     const day = beijingDay(checkTime);
     const info = current.cache.userInfo;
     const trafficVersion = source.cache.file ?? String(source.lastSuccessAt);
-    const pendingCauses = usage ? [] : reasons(info, checkTime).filter(cause => cause === EXPIRY_REASON
+    const threshold = current.trafficThresholdGiB;
+    const pendingCauses = usage ? [] : reasons(info, checkTime, threshold).filter(cause => cause === EXPIRY_REASON
       ? previous.day !== day : previous.trafficVersion !== trafficVersion);
-    if (usage ? previous.usageDay === day || !hasUsableTraffic(info) : !pendingCauses.length) return;
+    if (usage ? previous.usageDay === day || !hasUsableTraffic(info, threshold) : !pendingCauses.length) return;
     const title = usage ? USAGE_NOTIFICATION_TITLE : [
       pendingCauses.includes(TRAFFIC_REASON) ? 'Mihomo 流量预警' : '',
       pendingCauses.includes(EXPIRY_REASON) ? 'Mihomo 套餐即将到期' : ''

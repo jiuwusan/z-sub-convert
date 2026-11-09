@@ -82,6 +82,31 @@ test('notification configuration validates platform URLs and survives restart', 
   assert.equal(f.sent.length, 0);
 });
 
+test('source traffic threshold controls alerts and daily usage at the exact boundary', async t => {
+  const f = await fixture(t);
+  await f.service.save(settings);
+  await f.store.update(state => {
+    const source = state.sources[0];
+    source.trafficThresholdGiB = 50;
+    source.cache.userInfo = { total: String(50n * GB), upload: '1', download: '0' };
+    state.sources.push({ ...source, id: 'other', trafficThresholdGiB: 40 });
+  });
+  await f.service.check('one');
+  assert.equal(f.sent.length, 2);
+  for (const item of f.sent) assert.match(JSON.stringify(item.body), /剩余流量小于 50 GiB/);
+  await f.service.check('other');
+  assert.equal(f.sent.length, 4);
+  for (const item of f.sent.slice(2)) assert.match(JSON.stringify(item.body), /套餐使用情况/);
+  await f.store.update(state => {
+    const source = state.sources[0];
+    source.cache.userInfo.upload = '0';
+    source.cache.file = 'recovered';
+  });
+  await f.service.check('one');
+  assert.equal(f.sent.length, 6);
+  for (const item of f.sent.slice(4)) assert.match(JSON.stringify(item.body), /套餐使用情况/);
+});
+
 test('alerts use DingTalk Markdown and Feishu Markdown cards with escaped names and clickable official sites', async t => {
   const f = await fixture(t);
   await f.service.save(settings);

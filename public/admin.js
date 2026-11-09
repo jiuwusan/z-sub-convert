@@ -415,6 +415,10 @@ async function edit(resource, id) {
     }
     fields.append(field('第三方订阅链接', 'url', record.url, { type: 'url', maxLength: 8192, placeholder: 'https://example.com/subscribe?token=…' }).label);
     fields.append(field('User-Agent', 'userAgent', record.userAgent ?? 'clash-verge/v2.4.5', { maxLength: 512 }).label);
+    const threshold = field('流量告警阈值（GiB）', 'trafficThresholdGiB', record.trafficThresholdGiB ?? 30, { type: 'number' });
+    threshold.input.min = '1';
+    threshold.input.step = '1';
+    fields.append(threshold.label, node('p', 'field-help', '剩余流量低于此值时触发流量告警。'));
     const mode = node('label', 'source-option');
     const manual = node('input'); manual.type = 'checkbox'; manual.name = 'manualUpdate'; manual.checked = record.updateMode === 'manual';
     mode.append(manual, node('span', '', '仅手动更新')); fields.append(mode);
@@ -815,6 +819,7 @@ $('#editor-form').addEventListener('submit', async event => {
     const body = { name: form.get('name') };
     if (resource === 'sources') {
       Object.assign(body, { website: form.get('website'), username: form.get('username'), url: form.get('url'), userAgent: form.get('userAgent'), updateMode: form.has('manualUpdate') ? 'manual' : 'auto' });
+      body.trafficThresholdGiB = Number(form.get('trafficThresholdGiB'));
       const password = form.get('password');
       if (form.has('clearPassword')) body.password = '';
       else if (password) body.password = password;

@@ -202,6 +202,30 @@ test('source website is optional, validated, persisted and editable without inva
   assert.equal(f.upstreamCalls(), 1);
 });
 
+test('source traffic threshold defaults, validates and persists without invalidating the cache', async t => {
+  const f = await fixture(t);
+  await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' });
+  await f.login();
+  const input = { name: '来源', url: 'https://provider.example/sub' };
+  const source = await (await f.request('/api/sources', 'POST', input)).json();
+  assert.equal(source.trafficThresholdGiB, 30);
+  const path = `/api/sources/${source.id}`;
+  await f.request(`${path}/refresh`, 'POST', {});
+  for (const trafficThresholdGiB of [0, -1, 1.5, '50', null, 8589934592]) {
+    assert.equal((await f.request(path, 'PATCH', { ...input, trafficThresholdGiB })).status, 400);
+  }
+  const updated = await f.request(path, 'PATCH', { ...input, trafficThresholdGiB: 50 });
+  assert.equal(updated.status, 200);
+  assert.equal((await updated.json()).trafficThresholdGiB, 50);
+  await f.request(path, 'PATCH', input);
+  const restarted = await fixture(t, f.dataDir);
+  await restarted.login();
+  assert.equal((await (await restarted.request(path)).json()).trafficThresholdGiB, 50);
+  const state = await (await restarted.request('/api/state')).json();
+  assert.equal(state.sources[0].trafficThresholdGiB, 50);
+  assert.equal(state.sources[0].cacheStatus, 'valid');
+});
+
 test('downloads full source caches and generated subscriptions with name-timestamp filenames', async t => {
   const f = await fixture(t);
   await f.request('/api/setup', 'POST', { username: 'admin', password: 'password123' });

@@ -55,8 +55,8 @@
       <div class="content">
         <div class="page-heading"><div><span class="eyebrow">SUBSCRIPTION WORKSPACE</span><h1 id="page-title">系统订阅</h1><p id="page-description" class="muted">将多个来源与模板组合，生成专属订阅链接。</p></div><div class="toolbar"><button id="reload" class="secondary" title="刷新当前列表">↻ 刷新</button><button id="refresh-all" class="secondary">全部更新</button><button id="add-record" class="primary">＋ 新增订阅</button></div></div>
         <form id="notification-form" class="notification-panel" hidden>
-          <p class="field-help">自动通知从北京时间 09:00 起随对应来源成功更新触发。到期预警和套餐使用情况每个来源、每个渠道每天最多成功发送一次。剩余流量小于 30 GB 时，优先发送流量预警，每份新数据均可触发。</p>
-          <p class="field-help">剩余流量未知或低于 30 GB 时跳过使用情况。当日后续更新达到 30 GB 或为无限流量时可补发。发送失败将在该来源下次成功更新后重试。手动测试使用示例信息，可随时发送。</p>
+          <p class="field-help">自动通知从北京时间 09:00 起随对应来源成功更新触发。到期预警和套餐使用情况每个来源、每个渠道每天最多成功发送一次。剩余流量低于该来源的流量告警阈值（默认 30 GiB）时，优先发送流量预警，每份新数据均可触发。</p>
+          <p class="field-help">剩余流量未知或低于该来源阈值时跳过使用情况。当日后续更新达到阈值或为无限流量时可补发。发送失败将在该来源下次成功更新后重试。手动测试使用示例信息，可随时发送。</p>
           <fieldset id="notification-fields" disabled>
             <section class="notification-channel">
               <h2>钉钉</h2>
